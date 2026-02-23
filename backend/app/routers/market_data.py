@@ -123,3 +123,95 @@ def refresh_cache():
     """Clear all cached market data to force fresh fetches."""
     cache.clear()
     return {"status": "Cache cleared"}
+
+
+@router.get("/debug-massive")
+def debug_massive(ticker: str = Query("AAPL", description="Ticker to test")):
+    """Diagnostic endpoint: test Massive API connectivity and response shape."""
+    from app.config import get_settings
+
+    settings = get_settings()
+    key = settings.MASSIVE_API_KEY
+    result = {
+        "api_key_configured": bool(key),
+        "api_key_preview": f"{key[:4]}...{key[-4:]}" if key and len(key) >= 8 else "too_short_or_empty",
+    }
+
+    if not key:
+        result["error"] = "MASSIVE_API_KEY is empty — check backend/.env file"
+        return result
+
+    try:
+        from massive import RESTClient
+
+        client = RESTClient(api_key=key)
+
+        # Test 1: Snapshot
+        try:
+            snapshot = client.get_snapshot_ticker("stocks", ticker)
+            result["snapshot_type"] = type(snapshot).__name__
+            result["snapshot_ticker"] = getattr(snapshot, "ticker", None)
+            result["snapshot_updated"] = getattr(snapshot, "updated", None)
+            result["todays_change_percent"] = getattr(snapshot, "todays_change_percent", None)
+
+            # Day bar
+            day = snapshot.day if snapshot else None
+            result["day"] = {
+                "open": getattr(day, "open", None),
+                "high": getattr(day, "high", None),
+                "low": getattr(day, "low", None),
+                "close": getattr(day, "close", None),
+                "volume": getattr(day, "volume", None),
+            } if day else None
+
+            # Prev day bar
+            prev = snapshot.prev_day if snapshot else None
+            result["prev_day"] = {
+                "open": getattr(prev, "open", None),
+                "close": getattr(prev, "close", None),
+                "volume": getattr(prev, "volume", None),
+            } if prev else None
+
+            # Last trade
+            lt = snapshot.last_trade if snapshot else None
+            result["last_trade"] = {
+                "price": getattr(lt, "price", None),
+                "size": getattr(lt, "size", None),
+            } if lt else None
+
+            # Last quote
+            lq = snapshot.last_quote if snapshot else None
+            result["last_quote"] = {
+                "bid_price": getattr(lq, "bid_price", None),
+                "ask_price": getattr(lq, "ask_price", None),
+            } if lq else None
+
+        except Exception as e:
+            result["snapshot_error"] = f"{type(e).__name__}: {e}"
+
+        # Test 2: Previous close (simpler endpoint)
+        try:
+            prev_close = client.get_previous_close_agg(ticker)
+            result["prev_close_agg"] = {
+                "type": type(prev_close).__name__,
+                "open": getattr(prev_close, "open", None),
+                "close": getattr(prev_close, "close", None),
+            }
+        except Exception as e:
+            result["prev_close_error"] = f"{type(e).__name__}: {e}"
+
+        # Test 3: Ticker details
+        try:
+            details = client.get_ticker_details(ticker)
+            result["ticker_details"] = {
+                "name": getattr(details, "name", None),
+                "market_cap": getattr(details, "market_cap", None),
+                "sic_description": getattr(details, "sic_description", None),
+            }
+        except Exception as e:
+            result["details_error"] = f"{type(e).__name__}: {e}"
+
+    except Exception as e:
+        result["client_error"] = f"{type(e).__name__}: {e}"
+
+    return result
