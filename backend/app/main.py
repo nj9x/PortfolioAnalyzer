@@ -14,6 +14,18 @@ from app.routers import portfolios, market_data, analysis, chart_analysis, dcf
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     Base.metadata.create_all(bind=engine)
+
+    # Validate Massive API at startup — it is the priority data source
+    from app.data_sources.massive_client import validate_api
+    massive_status = validate_api()
+    if massive_status["status"] != "ok":
+        import logging
+        logging.getLogger(__name__).warning(
+            "Massive API not fully available at startup: %s — "
+            "real-time market data may be degraded",
+            massive_status.get("message"),
+        )
+
     yield
 
 
@@ -45,7 +57,16 @@ app.include_router(dcf.router, prefix="/api/v1/dcf", tags=["DCF Valuation"])
 
 @app.get("/api/v1/health")
 def health_check():
-    return {"status": "ok"}
+    from app.data_sources.massive_client import is_available, get_api_status
+    massive_ok = is_available()
+    return {
+        "status": "ok" if massive_ok else "degraded",
+        "massive_api": {
+            "available": massive_ok,
+            "status": get_api_status(),
+            "priority": True,
+        },
+    }
 
 
 # --- Static frontend serving (production only) ---

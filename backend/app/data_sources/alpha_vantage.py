@@ -57,7 +57,7 @@ def fetch_history(ticker: str, days: int = 365) -> list[dict]:
                 })
 
         rows = rows[-days:]
-        ttl = 3600 if days >= 252 else 300
+        ttl = 1800 if days >= 252 else 120  # shorter TTLs for fresher data
         cache.set(cache_key, rows, ttl)
         return rows
 
@@ -117,7 +117,7 @@ def fetch_quote(ticker: str) -> dict:
             "volume": int(latest.volume) if latest.volume else None,
         }
 
-        cache.set(cache_key, result, 300)
+        cache.set(cache_key, result, 60)  # quote refresh every 60s
         return result
 
     except Exception as e:

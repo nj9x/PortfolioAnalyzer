@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
+from app.config import get_settings
 from app.database import get_db
 from app.services import market_data_service, portfolio_service
 from app.services.cache_service import cache
@@ -118,8 +119,33 @@ def get_portfolio_risk(
     return {"risk": data}
 
 
+@router.get("/status")
+def data_source_status():
+    """Check status of all data sources — Massive API is the priority provider."""
+    from app.data_sources.massive_client import is_available, get_api_status, validate_api
+    settings = get_settings()
+    return {
+        "primary_source": "massive",
+        "massive": {
+            "available": is_available(),
+            "status": get_api_status(),
+            "key_configured": bool(settings.MASSIVE_API_KEY),
+        },
+        "supplemental": {
+            "newsapi": {"key_configured": bool(settings.NEWS_API_KEY)},
+            "fred": {"key_configured": bool(settings.FRED_API_KEY)},
+            "polymarket": {"available": True},
+        },
+    }
+
+
 @router.post("/refresh")
 def refresh_cache():
-    """Clear all cached market data to force fresh fetches."""
+    """Clear all cached market data to force fresh fetches from Massive."""
+    from app.data_sources.massive_client import validate_api
     cache.clear()
-    return {"status": "Cache cleared"}
+    massive_status = validate_api()
+    return {
+        "status": "Cache cleared — fresh data will be fetched from Massive",
+        "massive_api": massive_status,
+    }

@@ -1,4 +1,4 @@
-"""Stock data via Massive.com REST API (formerly yfinance + Alpha Vantage).
+"""Stock data via Massive.com REST API — the priority real-time data source.
 
 Provides quotes, history, company info, and financial statement data.
 All functions preserve their original signatures so callers do not need changes.
@@ -7,6 +7,7 @@ All functions preserve their original signatures so callers do not need changes.
 import logging
 from datetime import datetime, timedelta
 
+from app.config import get_settings
 from app.data_sources.massive_client import get_client
 from app.services.cache_service import cache
 
@@ -114,8 +115,8 @@ def fetch_history(ticker: str, period: str = "1mo") -> list[dict]:
                     "volume": int(agg.volume) if agg.volume else 0,
                 })
 
-        # Cache based on period length
-        ttl = 3600 if period in ("1y", "2y", "5y") else 300
+        # Cache based on period length — shorter for recent data
+        ttl = 1800 if period in ("1y", "2y", "5y") else 120
         cache.set(cache_key, rows, ttl)
         return rows
 
@@ -207,7 +208,7 @@ def fetch_info_safe(ticker_symbol: str) -> dict:
         pass
 
     if info.get("currentPrice") or info.get("marketCap"):
-        cache.set(cache_key, info, 300)
+        cache.set(cache_key, info, 120)  # refresh company info every 2 min
 
     return info
 
@@ -334,5 +335,5 @@ def _get_ticker_details_cached(ticker: str) -> dict:
     except Exception:
         pass
 
-    cache.set(cache_key, result, 3600)
+    cache.set(cache_key, result, 600)  # ticker details refresh every 10 min
     return result
