@@ -1,10 +1,15 @@
-"""Options chain data and Greeks from yfinance."""
+"""Options chain data and Greeks from Massive Options Chain Snapshot API.
+
+Endpoint: GET /v3/snapshot/options/{underlyingAsset}
+Returns contracts with pricing, greeks (delta, gamma, theta, vega),
+implied volatility, quotes, and open interest.
+"""
 
 import logging
 import numpy as np
-import yfinance as yf
 from datetime import datetime, timedelta
-from app.data_sources.yahoo_finance import _limiter
+
+from app.data_sources.massive_client import _get, _limiter, fetch_history
 
 logger = logging.getLogger(__name__)
 
@@ -13,152 +18,174 @@ def fetch_options_data(tickers: list[str]) -> dict:
     """Fetch ATM options with Greeks for each ticker."""
     results = {}
     for ticker_sym in tickers:
-        _limiter.acquire_sync()
         try:
-            ticker_obj = yf.Ticker(ticker_sym)
-            try:
-                expirations = ticker_obj.options
-            except Exception:
-                results[ticker_sym] = {"has_options": False, "ticker": ticker_sym}
-                continue
-
-            if not expirations:
-                results[ticker_sym] = {"has_options": False, "ticker": ticker_sym}
-                continue
-
-            # Get price from Alpha Vantage (cached)
-            current_price = None
-            try:
-                from app.data_sources import alpha_vantage
-                av_quote = alpha_vantage.fetch_quote(ticker_sym)
-                if av_quote:
-                    current_price = av_quote.get("current_price")
-            except Exception:
-                pass
-
-            if not current_price:
-                results[ticker_sym] = {"has_options": False, "ticker": ticker_sym, "error": "No price"}
-                continue
-
-            # Find nearest expiration 7-45 days out
-            expiry = _find_nearest_expiration(expirations)
-            if not expiry:
-                results[ticker_sym] = {"has_options": False, "ticker": ticker_sym}
-                continue
-
-            _limiter.acquire_sync()
-            chain = ticker_obj.option_chain(expiry)
-            atm = _find_atm_options(chain, current_price)
-
-            # Historical volatility
-            hv = _compute_historical_volatility(ticker_sym)
-
-            # IV from ATM options
-            iv_call = atm.get("call", {}).get("implied_volatility")
-            iv_put = atm.get("put", {}).get("implied_volatility")
-            iv_avg = None
-            if iv_call is not None and iv_put is not None:
-                iv_avg = round((iv_call + iv_put) / 2, 4)
-            elif iv_call is not None:
-                iv_avg = iv_call
-            elif iv_put is not None:
-                iv_avg = iv_put
-
-            vol_comparison = _compare_iv_hv(iv_avg, hv)
-
-            days_to_expiry = (datetime.strptime(expiry, "%Y-%m-%d") - datetime.now()).days
-
-            results[ticker_sym] = {
-                "ticker": ticker_sym,
-                "has_options": True,
-                "expiration": expiry,
-                "days_to_expiry": max(days_to_expiry, 0),
-                "atm_strike": atm.get("strike"),
-                "call": atm.get("call", {}),
-                "put": atm.get("put", {}),
-                "volatility": {
-                    "iv_call": iv_call,
-                    "iv_put": iv_put,
-                    "iv_avg": iv_avg,
-                    "hv_30d": hv,
-                    "iv_hv_ratio": round(iv_avg / hv, 2) if iv_avg and hv and hv > 0 else None,
-                    **vol_comparison,
-                },
-            }
+            results[ticker_sym] = _fetch_single_ticker_options(ticker_sym)
         except Exception as e:
             results[ticker_sym] = {"has_options": False, "ticker": ticker_sym, "error": str(e)}
     return results
 
 
-def _find_nearest_expiration(expirations: tuple, min_days: int = 7, max_days: int = 45) -> str | None:
-    """Find nearest expiration in the 7-45 day window."""
+def _fetch_single_ticker_options(ticker_sym: str) -> dict:
+    """Fetch options data for a single ticker via Massive."""
+    # Get current price from snapshot
+    from app.data_sources.massive_client import _get_ticker_snapshot
+
+    snap = _get_ticker_snapshot(ticker_sym)
+    day = snap.get("day", {})
+    current_price = day.get("c")
+
+    if not current_price:
+        return {"has_options": False, "ticker": ticker_sym, "error": "No price"}
+
+    # Find target expiration 7-45 days out
     now = datetime.now()
-    best = None
-    best_diff = float("inf")
+    min_exp = (now + timedelta(days=7)).strftime("%Y-%m-%d")
+    max_exp = (now + timedelta(days=45)).strftime("%Y-%m-%d")
 
-    for exp_str in expirations:
-        exp_date = datetime.strptime(exp_str, "%Y-%m-%d")
-        days = (exp_date - now).days
-        if min_days <= days <= max_days and days < best_diff:
-            best = exp_str
-            best_diff = days
+    # Fetch options chain snapshot with expiration filter
+    _limiter.acquire_sync()
+    data = _get(
+        f"/v3/snapshot/options/{ticker_sym}",
+        params={
+            "expiration_date.gte": min_exp,
+            "expiration_date.lte": max_exp,
+            "limit": "250",
+        },
+    )
 
-    # If nothing in window, take the nearest future expiration
-    if best is None:
-        for exp_str in expirations:
-            exp_date = datetime.strptime(exp_str, "%Y-%m-%d")
-            days = (exp_date - now).days
-            if days > 0 and days < best_diff:
-                best = exp_str
-                best_diff = days
+    contracts = data.get("results", [])
 
-    return best
+    # If no contracts in 7-45 day window, try broader range
+    if not contracts:
+        broader_max = (now + timedelta(days=90)).strftime("%Y-%m-%d")
+        _limiter.acquire_sync()
+        data = _get(
+            f"/v3/snapshot/options/{ticker_sym}",
+            params={
+                "expiration_date.gte": min_exp,
+                "expiration_date.lte": broader_max,
+                "limit": "250",
+            },
+        )
+        contracts = data.get("results", [])
+
+    if not contracts:
+        return {"has_options": False, "ticker": ticker_sym}
+
+    # Group by expiration and find the nearest one
+    expirations = set()
+    for c in contracts:
+        exp = c.get("details", {}).get("expiration_date")
+        if exp:
+            expirations.add(exp)
+
+    if not expirations:
+        return {"has_options": False, "ticker": ticker_sym}
+
+    nearest_exp = min(expirations, key=lambda e: abs((datetime.strptime(e, "%Y-%m-%d") - now).days))
+
+    # Filter contracts for nearest expiration
+    exp_contracts = [
+        c for c in contracts
+        if c.get("details", {}).get("expiration_date") == nearest_exp
+    ]
+
+    # Separate calls and puts
+    calls = [c for c in exp_contracts if c.get("details", {}).get("contract_type") == "call"]
+    puts = [c for c in exp_contracts if c.get("details", {}).get("contract_type") == "put"]
+
+    # Find ATM strike (closest to current price)
+    atm = _find_atm_options(calls, puts, current_price)
+
+    # Historical volatility
+    hv = _compute_historical_volatility(ticker_sym)
+
+    # IV from ATM options
+    iv_call = atm.get("call", {}).get("implied_volatility")
+    iv_put = atm.get("put", {}).get("implied_volatility")
+    iv_avg = None
+    if iv_call is not None and iv_put is not None:
+        iv_avg = round((iv_call + iv_put) / 2, 4)
+    elif iv_call is not None:
+        iv_avg = iv_call
+    elif iv_put is not None:
+        iv_avg = iv_put
+
+    vol_comparison = _compare_iv_hv(iv_avg, hv)
+
+    days_to_expiry = (datetime.strptime(nearest_exp, "%Y-%m-%d") - now).days
+
+    return {
+        "ticker": ticker_sym,
+        "has_options": True,
+        "expiration": nearest_exp,
+        "days_to_expiry": max(days_to_expiry, 0),
+        "atm_strike": atm.get("strike"),
+        "call": atm.get("call", {}),
+        "put": atm.get("put", {}),
+        "volatility": {
+            "iv_call": iv_call,
+            "iv_put": iv_put,
+            "iv_avg": iv_avg,
+            "hv_30d": hv,
+            "iv_hv_ratio": round(iv_avg / hv, 2) if iv_avg and hv and hv > 0 else None,
+            **vol_comparison,
+        },
+    }
 
 
-def _find_atm_options(chain, current_price: float) -> dict:
-    """Find nearest ATM call and put, extract data."""
-    calls = chain.calls
-    puts = chain.puts
+def _find_atm_options(calls: list[dict], puts: list[dict], current_price: float) -> dict:
+    """Find nearest ATM call and put from Massive options chain snapshot."""
+    if not calls and not puts:
+        return {"strike": None, "call": {}, "put": {}}
 
-    if calls.empty or puts.empty:
+    # Get all strikes
+    all_contracts = calls + puts
+    strikes = list({c.get("details", {}).get("strike_price") for c in all_contracts if c.get("details", {}).get("strike_price")})
+    if not strikes:
         return {"strike": None, "call": {}, "put": {}}
 
     # Find strike closest to current price
-    strikes = calls["strike"].values
-    atm_idx = int(np.argmin(np.abs(strikes - current_price)))
-    strike = float(strikes[atm_idx])
+    atm_strike = min(strikes, key=lambda s: abs(s - current_price))
 
-    call_row = calls.iloc[atm_idx]
-    put_row = puts.iloc[atm_idx] if atm_idx < len(puts) else None
-
-    def _extract(row) -> dict:
-        if row is None:
-            return {}
-        return {
-            "strike": float(row.get("strike", 0)),
-            "last_price": _safe(row.get("lastPrice")),
-            "bid": _safe(row.get("bid")),
-            "ask": _safe(row.get("ask")),
-            "implied_volatility": _safe(row.get("impliedVolatility")),
-            "open_interest": int(row.get("openInterest", 0)) if not _is_nan(row.get("openInterest")) else 0,
-            "volume": int(row.get("volume", 0)) if not _is_nan(row.get("volume")) else 0,
-            # Greeks if available (yfinance may not always provide these)
-            "delta": _safe(row.get("delta")),
-            "gamma": _safe(row.get("gamma")),
-            "theta": _safe(row.get("theta")),
-            "vega": _safe(row.get("vega")),
-        }
+    # Find the call and put at that strike
+    atm_call = next((c for c in calls if c.get("details", {}).get("strike_price") == atm_strike), None)
+    atm_put = next((c for c in puts if c.get("details", {}).get("strike_price") == atm_strike), None)
 
     return {
-        "strike": strike,
-        "call": _extract(call_row),
-        "put": _extract(put_row),
+        "strike": atm_strike,
+        "call": _extract_contract(atm_call),
+        "put": _extract_contract(atm_put),
+    }
+
+
+def _extract_contract(contract: dict | None) -> dict:
+    """Extract standardized data from a Massive options contract snapshot."""
+    if contract is None:
+        return {}
+
+    details = contract.get("details", {})
+    greeks = contract.get("greeks", {})
+    last_quote = contract.get("last_quote", {})
+    day_data = contract.get("day", {})
+
+    return {
+        "strike": details.get("strike_price"),
+        "last_price": day_data.get("close"),
+        "bid": last_quote.get("bid"),
+        "ask": last_quote.get("ask"),
+        "implied_volatility": _safe(contract.get("implied_volatility")),
+        "open_interest": contract.get("open_interest", 0) or 0,
+        "volume": day_data.get("volume", 0) or 0,
+        "delta": _safe(greeks.get("delta")),
+        "gamma": _safe(greeks.get("gamma")),
+        "theta": _safe(greeks.get("theta")),
+        "vega": _safe(greeks.get("vega")),
     }
 
 
 def _compute_historical_volatility(ticker_sym: str, period: int = 30) -> float | None:
     """Compute 30-day annualized historical volatility."""
-    from app.data_sources.yahoo_finance import fetch_history
     try:
         history = fetch_history(ticker_sym, period="3mo")
         if len(history) < period:

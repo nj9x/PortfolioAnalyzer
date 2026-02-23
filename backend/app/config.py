@@ -17,6 +17,7 @@ class Settings(BaseSettings):
     NEWS_API_KEY: str = ""
     FRED_API_KEY: str = ""
     ALPHA_VANTAGE_API_KEY: str = ""
+    MASSIVE_API_KEY: str = ""
 
     # Deployment settings
     PORT: int = 8000
@@ -24,7 +25,7 @@ class Settings(BaseSettings):
     FRONTEND_DIR: str = ""  # path to built frontend dist; empty = don't serve
 
     # Rate limits
-    YAHOO_REQUESTS_PER_MINUTE: int = 30
+    MASSIVE_REQUESTS_PER_MINUTE: int = 5
     NEWS_API_REQUESTS_PER_DAY: int = 100
 
     # Claude settings

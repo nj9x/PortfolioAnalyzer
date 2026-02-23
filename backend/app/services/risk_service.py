@@ -3,7 +3,7 @@
 import logging
 import numpy as np
 import pandas as pd
-from app.data_sources.yahoo_finance import fetch_info_safe
+from app.data_sources.massive_client import fetch_info_safe
 
 logger = logging.getLogger(__name__)
 
@@ -52,7 +52,7 @@ def _compute_position_weights(holdings: list[dict], quotes: dict) -> dict:
 
 
 def _compute_portfolio_beta(weights: dict, tickers: list[str]) -> dict:
-    """Weighted-average beta from yfinance."""
+    """Weighted-average beta from Massive."""
     betas = {}
     for t in tickers:
         try:

@@ -3,7 +3,6 @@ uvicorn[standard]==0.34.0
 sqlalchemy==2.0.36
 pydantic==2.10.4
 pydantic-settings==2.7.1
-yfinance==0.2.51
 httpx==0.28.1
 fredapi==0.5.2
 anthropic==0.43.0

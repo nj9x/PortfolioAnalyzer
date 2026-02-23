@@ -2,7 +2,7 @@ import json
 import logging
 from sqlalchemy.orm import Session
 
-from app.data_sources.yahoo_finance import fetch_info_safe
+from app.data_sources.massive_client import fetch_info_safe
 from app.data_sources.alpha_vantage import (
     fetch_financial_statements,
     get_company_overview,

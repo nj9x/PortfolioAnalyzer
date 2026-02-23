@@ -1,7 +1,7 @@
 import asyncio
 from app.services.cache_service import cache
 from app.config import get_settings
-from app.data_sources import yahoo_finance, polymarket, news_api, fred
+from app.data_sources import massive_client, polymarket, news_api, fred
 from app.data_sources import technical_analysis, fundamentals, options_data
 from app.services import risk_service
 
@@ -20,7 +20,7 @@ def get_quotes_for_tickers(tickers: list[str]) -> dict:
             uncached.append(t)
 
     if uncached:
-        fresh = yahoo_finance.fetch_quotes(uncached)
+        fresh = massive_client.fetch_quotes(uncached)
         for t, data in fresh.items():
             cache.set(f"quote:{t}", data, settings.STOCK_CACHE_TTL)
             result[t] = data

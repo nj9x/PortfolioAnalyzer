@@ -1,7 +1,7 @@
-"""Greenblatt-style fundamental screening via yfinance data."""
+"""Greenblatt-style fundamental screening via Massive API data."""
 
 import logging
-from app.data_sources.yahoo_finance import fetch_info_safe
+from app.data_sources.massive_client import fetch_info_safe
 
 logger = logging.getLogger(__name__)
 
@@ -9,7 +9,7 @@ logger = logging.getLogger(__name__)
 def fetch_fundamentals(tickers: list[str]) -> dict:
     """Fetch fundamental metrics for a list of tickers.
 
-    yfinance .info already provides all needed fields:
+    Massive .info already provides all needed fields:
     freeCashflow, netIncomeToCommon, totalDebt, totalCash, enterpriseValue, etc.
     """
     results = {}
@@ -24,7 +24,7 @@ def fetch_fundamentals(tickers: list[str]) -> dict:
 
 
 def _extract_fundamentals(info: dict, ticker: str) -> dict:
-    """Extract all fundamental metrics from yfinance info dict."""
+    """Extract all fundamental metrics from Massive info dict."""
     valuation = _compute_valuation(info)
     quality = _compute_quality(info)
     growth = _compute_growth(info)
@@ -105,7 +105,7 @@ def _compute_health(info: dict) -> dict:
     """Debt/Equity, current ratio."""
     de = info.get("debtToEquity")
     return {
-        "debt_to_equity": round(de / 100, 2) if de else None,  # yfinance returns as percentage
+        "debt_to_equity": round(de / 100, 2) if de else None,  # Massive returns as percentage
         "current_ratio": _safe_round(info.get("currentRatio")),
         "quick_ratio": _safe_round(info.get("quickRatio")),
     }
