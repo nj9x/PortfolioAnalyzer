@@ -8,21 +8,30 @@ data source with yfinance/Alpha Vantage as fallbacks.
 import logging
 from datetime import datetime, timedelta
 
-from massive import RESTClient
-
 from app.config import get_settings
 from app.services.cache_service import cache
 
 logger = logging.getLogger(__name__)
 
-_client: RESTClient | None = None
+try:
+    from massive import RESTClient
+    _MASSIVE_AVAILABLE = True
+except ImportError:
+    RESTClient = None  # type: ignore
+    _MASSIVE_AVAILABLE = False
+    logger.warning("massive package not installed — pip install massive")
+
+_client: "RESTClient | None" = None
 
 
-def _get_client() -> RESTClient | None:
+def _get_client():
     """Lazy-init the Massive REST client."""
     global _client
     if _client is not None:
         return _client
+
+    if not _MASSIVE_AVAILABLE:
+        return None
 
     settings = get_settings()
     key = settings.MASSIVE_API_KEY
