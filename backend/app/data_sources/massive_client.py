@@ -510,27 +510,15 @@ def fetch_financials(ticker_symbol: str) -> dict:
     """Fetch financial statement data via Massive Stock Financials.
 
     Returns dict with net_income, total_debt, total_cash, free_cashflow.
-    Falls back to Alpha Vantage if Massive data is incomplete.
     """
     info = fetch_info_safe(ticker_symbol)
 
-    result = {
+    return {
         "net_income": info.get("netIncomeToCommon"),
         "total_debt": info.get("totalDebt"),
         "total_cash": info.get("totalCash"),
         "free_cashflow": info.get("freeCashflow"),
     }
-
-    if any(v is not None for v in result.values()):
-        return result
-
-    # Fallback to Alpha Vantage for financial statements
-    try:
-        from app.data_sources import alpha_vantage
-        return alpha_vantage.fetch_financial_statements(ticker_symbol)
-    except Exception as e:
-        logger.warning(f"Alpha Vantage fallback failed for {ticker_symbol}: {e}")
-        return result
 
 
 # ─── Helpers ───────────────────────────────────────────────────────────

@@ -127,14 +127,11 @@ def _compute_correlation_matrix(tickers: list[str], period: str = "6mo") -> dict
         return {"high_pairs": [], "avg_correlation": 0}
 
     try:
-        # Use Alpha Vantage daily history for each ticker
-        from app.data_sources import alpha_vantage
-
-        period_days = {"3mo": 66, "6mo": 130, "1y": 252}.get(period, 130)
+        from app.data_sources import massive_client
 
         closes_dict = {}
         for t in tickers:
-            history = alpha_vantage.fetch_history(t, days=period_days)
+            history = massive_client.fetch_history(t, period=period)
             if history:
                 closes_dict[t] = pd.Series(
                     [h["close"] for h in history],
