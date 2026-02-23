@@ -1,0 +1,36 @@
+# Dependencies
+node_modules/
+backend/venv/
+backend/.venv/
+
+# Build artifacts
+frontend/dist/
+__pycache__/
+*.pyc
+*.pyo
+
+# Environment / secrets
+.env
+*.env
+
+# Database
+*.db
+*.sqlite3
+
+# IDE / OS
+.vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db
+
+# Git
+.git/
+.gitignore
+
+# Dev scripts
+*.bat
+.claude/
+
+# Uploads (don't ship local uploads into image)
+backend/uploads/
