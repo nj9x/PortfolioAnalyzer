@@ -1,6 +1,6 @@
 import { useState, useCallback } from 'react'
 import { useDropzone } from 'react-dropzone'
-import { useAnalyzeChart, useChartHistory, useChartAnalysis } from '../hooks/useChartAnalysis'
+import { useAnalyzeChart, useChartHistory, useChartAnalysis, useDeleteChartAnalysis } from '../hooks/useChartAnalysis'
 import { getChartImageUrl } from '../api/chartAnalysis'
 import ChartAnalysisResults from '../components/chart/ChartAnalysisResults'
 import LoadingSpinner from '../components/common/LoadingSpinner'
@@ -29,6 +29,7 @@ export default function ChartAnalysis() {
   const [selectedId, setSelectedId] = useState(null)
 
   const analyze = useAnalyzeChart()
+  const deleteAnalysis = useDeleteChartAnalysis()
   const { data: history = [] } = useChartHistory()
   const { data: selectedAnalysis } = useChartAnalysis(selectedId)
 
@@ -74,6 +75,16 @@ export default function ChartAnalysis() {
     setFile(null)
     setPreview(null)
     analyze.reset()
+  }
+
+  const handleDelete = (e, id) => {
+    e.stopPropagation()
+    if (!window.confirm('Delete this analysis?')) return
+    deleteAnalysis.mutate(id, {
+      onSuccess: () => {
+        if (selectedId === id) setSelectedId(null)
+      },
+    })
   }
 
   return (
@@ -207,6 +218,14 @@ export default function ChartAnalysis() {
                             </span>
                           )}
                         </div>
+                        <button
+                          onClick={(e) => handleDelete(e, h.id)}
+                          disabled={deleteAnalysis.isPending}
+                          className="p-1 rounded text-gray-400 hover:text-red-600 hover:bg-red-50 transition-colors"
+                          title="Delete analysis"
+                        >
+                          <Trash2 size={14} />
+                        </button>
                       </div>
                       <p className="text-xs text-gray-400 mt-1">
                         {new Date(h.created_at).toLocaleString()}
