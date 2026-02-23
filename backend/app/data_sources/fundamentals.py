@@ -1,4 +1,4 @@
-"""Greenblatt-style fundamental screening via yfinance data."""
+"""Greenblatt-style fundamental screening via Massive.com data."""
 
 import logging
 from app.data_sources.yahoo_finance import fetch_info_safe
