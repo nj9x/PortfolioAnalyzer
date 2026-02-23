@@ -45,7 +45,16 @@ app.include_router(dcf.router, prefix="/api/v1/dcf", tags=["DCF Valuation"])
 
 @app.get("/api/v1/health")
 def health_check():
-    return {"status": "ok"}
+    s = get_settings()
+    return {
+        "status": "ok",
+        "data_sources": {
+            "massive": "configured" if s.MASSIVE_API_KEY else "NOT configured — set MASSIVE_API_KEY env var",
+            "alpha_vantage": "configured" if s.ALPHA_VANTAGE_API_KEY else "not configured",
+            "news_api": "configured" if s.NEWS_API_KEY else "not configured",
+            "fred": "configured" if s.FRED_API_KEY else "not configured",
+        },
+    }
 
 
 # --- Static frontend serving (production only) ---

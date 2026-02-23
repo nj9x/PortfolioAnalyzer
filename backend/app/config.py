@@ -17,6 +17,7 @@ class Settings(BaseSettings):
     NEWS_API_KEY: str = ""
     FRED_API_KEY: str = ""
     ALPHA_VANTAGE_API_KEY: str = ""
+    MASSIVE_API_KEY: str = ""
 
     # Deployment settings
     PORT: int = 8000

@@ -158,9 +158,17 @@ def _find_atm_options(chain, current_price: float) -> dict:
 
 def _compute_historical_volatility(ticker_sym: str, period: int = 30) -> float | None:
     """Compute 30-day annualized historical volatility."""
-    from app.data_sources.yahoo_finance import fetch_history
     try:
-        history = fetch_history(ticker_sym, period="3mo")
+        # Try Massive first, fall back to yfinance
+        from app.config import get_settings
+        settings = get_settings()
+        history = []
+        if settings.MASSIVE_API_KEY:
+            from app.data_sources import massive_api
+            history = massive_api.fetch_history(ticker_sym, period="3mo")
+        if not history:
+            from app.data_sources.yahoo_finance import fetch_history
+            history = fetch_history(ticker_sym, period="3mo")
         if len(history) < period:
             return None
         import pandas as pd
