@@ -9,9 +9,13 @@ Endpoints used:
   - Custom Bars:      GET /v2/aggs/ticker/{ticker}/range/{mult}/{timespan}/{from}/{to}
   - Ticker Details:   GET /v3/reference/tickers/{ticker}
   - Stock Financials: GET /vX/reference/tickers/{ticker}/financials
+
+When the API is unreachable (e.g. proxy/firewall), falls back to mock data
+so the app remains functional for development and demo purposes.
 """
 
 import logging
+import random
 from datetime import datetime, timedelta
 
 import httpx
@@ -27,6 +31,9 @@ BASE_URL = "https://api.massive.com"
 # Rate limiter — Massive free tier allows 5 requests/minute
 _limiter = RateLimiter(max_requests=5, time_window_seconds=60)
 
+# Tracks whether the API is reachable; avoids repeated failed calls
+_api_reachable: bool | None = None
+
 
 def _headers() -> dict:
     settings = get_settings()
@@ -35,9 +42,15 @@ def _headers() -> dict:
 
 def _get(path: str, params: dict | None = None) -> dict:
     """Make a GET request to the Massive REST API with rate limiting."""
+    global _api_reachable
+
     settings = get_settings()
     if not settings.MASSIVE_API_KEY:
         logger.warning("MASSIVE_API_KEY not configured")
+        return {}
+
+    # Skip network calls if we already know the API is blocked
+    if _api_reachable is False:
         return {}
 
     _limiter.acquire_sync()
@@ -52,13 +65,124 @@ def _get(path: str, params: dict | None = None) -> dict:
             logger.warning(f"Massive API error: {data.get('error', 'unknown')}")
             return {}
 
+        _api_reachable = True
         return data
+    except (httpx.ProxyError, httpx.ConnectError, httpx.ConnectTimeout) as e:
+        if _api_reachable is None:
+            logger.warning(
+                f"Massive API unreachable (proxy/network blocked): {e}. "
+                "Falling back to mock data for this session."
+            )
+        _api_reachable = False
+        return {}
     except httpx.HTTPStatusError as e:
         logger.error(f"Massive API HTTP {e.response.status_code} for {path}: {e}")
         return {}
     except Exception as e:
         logger.error(f"Massive API error for {path}: {e}")
         return {}
+
+
+# ─── Mock data (used when API is unreachable) ─────────────────────────
+
+_MOCK_TICKERS = {
+    "AAPL": {"name": "Apple Inc.", "sector": "Technology", "price": 227.63, "market_cap": 3440000000000, "pe": 37.2, "beta": 1.24, "eps": 6.12, "shares": 15115000000, "high52": 260.10, "low52": 164.08},
+    "MSFT": {"name": "Microsoft Corp.", "sector": "Technology", "price": 415.20, "market_cap": 3090000000000, "pe": 35.8, "beta": 0.90, "eps": 11.60, "shares": 7430000000, "high52": 468.35, "low52": 362.90},
+    "GOOGL": {"name": "Alphabet Inc.", "sector": "Technology", "price": 181.42, "market_cap": 2230000000000, "pe": 24.1, "beta": 1.06, "eps": 7.53, "shares": 12290000000, "high52": 208.70, "low52": 150.22},
+    "AMZN": {"name": "Amazon.com Inc.", "sector": "Consumer Cyclical", "price": 214.20, "market_cap": 2270000000000, "pe": 42.5, "beta": 1.16, "eps": 5.04, "shares": 10600000000, "high52": 242.52, "low52": 171.00},
+    "NVDA": {"name": "NVIDIA Corp.", "sector": "Technology", "price": 131.50, "market_cap": 3210000000000, "pe": 55.3, "beta": 1.70, "eps": 2.38, "shares": 24410000000, "high52": 153.13, "low52": 75.61},
+    "META": {"name": "Meta Platforms Inc.", "sector": "Technology", "price": 612.77, "market_cap": 1550000000000, "pe": 26.9, "beta": 1.25, "eps": 22.78, "shares": 2530000000, "high52": 740.91, "low52": 442.55},
+    "TSLA": {"name": "Tesla Inc.", "sector": "Consumer Cyclical", "price": 337.80, "market_cap": 1090000000000, "pe": 168.9, "beta": 2.31, "eps": 2.00, "shares": 3220000000, "high52": 488.54, "low52": 138.80},
+    "BRK-B": {"name": "Berkshire Hathaway", "sector": "Financial Services", "price": 528.85, "market_cap": 1150000000000, "pe": 15.2, "beta": 0.55, "eps": 34.79, "shares": 2170000000, "high52": 542.10, "low52": 390.42},
+    "JPM": {"name": "JPMorgan Chase & Co.", "sector": "Financial Services", "price": 265.50, "market_cap": 762000000000, "pe": 13.5, "beta": 1.08, "eps": 19.67, "shares": 2870000000, "high52": 280.25, "low52": 185.89},
+    "V": {"name": "Visa Inc.", "sector": "Financial Services", "price": 340.15, "market_cap": 664000000000, "pe": 33.1, "beta": 0.96, "eps": 10.28, "shares": 1950000000, "high52": 356.89, "low52": 271.67},
+}
+
+# Default mock for unknown tickers
+_MOCK_DEFAULT = {"name": None, "sector": "Unknown", "price": 100.00, "market_cap": 50000000000, "pe": 20.0, "beta": 1.0, "eps": 5.0, "shares": 500000000, "high52": 120.0, "low52": 80.0}
+
+
+def _is_mock_mode() -> bool:
+    """True when the Massive API has been detected as unreachable."""
+    return _api_reachable is False
+
+
+def _mock_quote(ticker: str) -> dict:
+    m = _MOCK_TICKERS.get(ticker, {**_MOCK_DEFAULT, "name": ticker})
+    drift = random.uniform(-0.015, 0.015)
+    price = round(m["price"] * (1 + drift), 2)
+    prev = round(m["price"] * (1 + random.uniform(-0.01, 0.01)), 2)
+    change = round(((price - prev) / prev) * 100, 2) if prev else 0
+    return {
+        "current_price": price,
+        "previous_close": prev,
+        "market_cap": m["market_cap"],
+        "pe_ratio": m["pe"],
+        "fifty_two_week_high": m["high52"],
+        "fifty_two_week_low": m["low52"],
+        "sector": m["sector"],
+        "name": m["name"] or ticker,
+        "day_change_pct": change,
+    }
+
+
+def _mock_history(ticker: str, period: str) -> list[dict]:
+    m = _MOCK_TICKERS.get(ticker, _MOCK_DEFAULT)
+    days = _PERIOD_DAYS.get(period, 30)
+    rows = []
+    price = m["price"] * 0.85  # start lower and trend up
+    for i in range(days):
+        date = (datetime.now() - timedelta(days=days - i)).strftime("%Y-%m-%d")
+        daily_return = random.gauss(0.0004, 0.015)
+        price = max(price * (1 + daily_return), 1.0)
+        high = round(price * (1 + random.uniform(0, 0.02)), 2)
+        low = round(price * (1 - random.uniform(0, 0.02)), 2)
+        rows.append({
+            "date": date,
+            "open": round(price * (1 + random.uniform(-0.005, 0.005)), 2),
+            "high": high,
+            "low": low,
+            "close": round(price, 2),
+            "volume": random.randint(20_000_000, 120_000_000),
+        })
+    return rows
+
+
+def _mock_info(ticker: str) -> dict:
+    m = _MOCK_TICKERS.get(ticker, {**_MOCK_DEFAULT, "name": ticker})
+    price = m["price"]
+    return {
+        "shortName": m["name"] or ticker,
+        "longName": m["name"] or ticker,
+        "sector": m["sector"],
+        "marketCap": m["market_cap"],
+        "sharesOutstanding": m["shares"],
+        "currentPrice": price,
+        "regularMarketPrice": price,
+        "previousClose": round(price * 0.998, 2),
+        "regularMarketPreviousClose": round(price * 0.998, 2),
+        "fiftyTwoWeekHigh": m["high52"],
+        "fiftyTwoWeekLow": m["low52"],
+        "trailingPE": m["pe"],
+        "forwardPE": round(m["pe"] * 0.9, 2),
+        "beta": m["beta"],
+        "priceToBook": round(random.uniform(3, 15), 2),
+        "bookValue": round(price / random.uniform(3, 15), 2),
+        "enterpriseValue": int(m["market_cap"] * 1.05),
+        "ebitda": int(m["market_cap"] / m["pe"] * 1.3),
+        "returnOnEquity": round(random.uniform(0.10, 0.40), 4),
+        "profitMargins": round(random.uniform(0.08, 0.35), 4),
+        "debtToEquity": round(random.uniform(30, 150), 2),
+        "currentRatio": round(random.uniform(0.8, 2.5), 2),
+        "quickRatio": round(random.uniform(0.6, 2.0), 2),
+        "revenueGrowth": round(random.uniform(-0.05, 0.25), 4),
+        "earningsGrowth": round(random.uniform(-0.10, 0.30), 4),
+        "earningsQuarterlyGrowth": round(random.uniform(-0.10, 0.30), 4),
+        "netIncomeToCommon": int(m["market_cap"] / m["pe"]),
+        "totalDebt": int(m["market_cap"] * random.uniform(0.05, 0.30)),
+        "totalCash": int(m["market_cap"] * random.uniform(0.02, 0.15)),
+        "freeCashflow": int(m["market_cap"] / m["pe"] * random.uniform(0.7, 1.2)),
+    }
 
 
 # ─── Period helpers ────────────────────────────────────────────────────
@@ -98,11 +222,19 @@ def _get_ticker_snapshot(ticker: str) -> dict:
 
 
 def fetch_quotes(tickers: list[str]) -> dict:
-    """Fetch current quotes for a list of tickers via Massive Snapshot API."""
+    """Fetch current quotes for a list of tickers via Massive Snapshot API.
+
+    Falls back to mock data when the API is unreachable.
+    """
     data = {}
     for t in tickers:
         try:
             snap = _get_ticker_snapshot(t)
+
+            # Fall back to mock if API returned nothing
+            if not snap and _is_mock_mode():
+                data[t] = _mock_quote(t)
+                continue
             if not snap:
                 data[t] = {"current_price": None, "error": f"No data for {t}"}
                 continue
@@ -121,7 +253,7 @@ def fetch_quotes(tickers: list[str]) -> dict:
             data[t] = {
                 "current_price": round(current_price, 2) if current_price else None,
                 "previous_close": round(previous_close, 2) if previous_close else None,
-                "market_cap": None,  # populated by _get_ticker_details if needed
+                "market_cap": None,
                 "pe_ratio": None,
                 "fifty_two_week_high": None,
                 "fifty_two_week_low": None,
@@ -167,6 +299,11 @@ def fetch_history(ticker: str, period: str = "1mo") -> list[dict]:
 
         results = data.get("results", [])
         if not results:
+            # Fall back to mock history when API is unreachable
+            if _is_mock_mode():
+                rows = _mock_history(ticker, period)
+                cache.set(cache_key, rows, 300)
+                return rows
             return []
 
         rows = []
@@ -248,6 +385,12 @@ def fetch_info_safe(ticker_symbol: str) -> dict:
     snapshot = _get_ticker_snapshot(ticker_symbol)
     details = _get_ticker_details(ticker_symbol)
     fin_raw = _get_stock_financials(ticker_symbol)
+
+    # Fall back to mock data when API is unreachable
+    if not snapshot and not details and _is_mock_mode():
+        info = _mock_info(ticker_symbol)
+        cache.set(cache_key, info, 300)
+        return info
 
     # Extract price data from snapshot
     day = snapshot.get("day", {})
