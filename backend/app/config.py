@@ -14,10 +14,10 @@ load_dotenv(_env_path, override=True)
 class Settings(BaseSettings):
     DATABASE_URL: str = "sqlite:///./portfolio_analyzer.db"
     ANTHROPIC_API_KEY: str = ""
+    MASSIVE_API_KEY: str = ""
     NEWS_API_KEY: str = ""
     FRED_API_KEY: str = ""
     ALPHA_VANTAGE_API_KEY: str = ""
-    MASSIVE_API_KEY: str = ""
 
     # Deployment settings
     PORT: int = 8000
@@ -25,7 +25,6 @@ class Settings(BaseSettings):
     FRONTEND_DIR: str = ""  # path to built frontend dist; empty = don't serve
 
     # Rate limits
-    YAHOO_REQUESTS_PER_MINUTE: int = 30
     NEWS_API_REQUESTS_PER_DAY: int = 100
 
     # Claude settings
@@ -33,17 +32,15 @@ class Settings(BaseSettings):
     CLAUDE_MAX_TOKENS: int = 16384
 
     # Cache TTLs (seconds)
-    # Massive-backed real-time data — shorter TTLs for fresher market data
-    STOCK_CACHE_TTL: int = 60           # quotes refresh every 60s
-    TECHNICAL_CACHE_TTL: int = 120      # technicals refresh every 2 min
-    OPTIONS_CACHE_TTL: int = 120        # options refresh every 2 min
-    RISK_CACHE_TTL: int = 120           # risk refresh every 2 min
-    FUNDAMENTALS_CACHE_TTL: int = 1800  # fundamentals refresh every 30 min
-    ALPHA_VANTAGE_CACHE_TTL: int = 3600  # company overview refresh every 1 hr
-    # Supplemental sources — longer TTLs (data changes less frequently)
+    STOCK_CACHE_TTL: int = 300
     NEWS_CACHE_TTL: int = 900
     POLYMARKET_CACHE_TTL: int = 600
     FRED_CACHE_TTL: int = 86400
+    TECHNICAL_CACHE_TTL: int = 300
+    FUNDAMENTALS_CACHE_TTL: int = 3600
+    OPTIONS_CACHE_TTL: int = 300
+    RISK_CACHE_TTL: int = 300
+    ALPHA_VANTAGE_CACHE_TTL: int = 86400  # 24 hours for company overview
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
