@@ -9,7 +9,6 @@ import logging
 from datetime import datetime, timedelta
 
 from massive import RESTClient
-from massive.rest.models import Agg, TickerSnapshot
 
 from app.config import get_settings
 from app.services.cache_service import cache
@@ -35,11 +34,26 @@ def _get_client() -> RESTClient | None:
     return _client
 
 
+def _safe_float(val) -> float | None:
+    """Safely convert to float, treating None correctly but preserving 0."""
+    if val is None:
+        return None
+    try:
+        return float(val)
+    except (ValueError, TypeError):
+        return None
+
+
 # ─── Stock Quotes ────────────────────────────────────────────────────
 
 
 def fetch_quotes(tickers: list[str]) -> dict:
     """Fetch current quotes for a list of tickers via snapshot endpoint.
+
+    Price resolution priority:
+      1. last_trade.price  (most recent trade — available during/after hours)
+      2. day.close         (today's bar close — populated once market opens)
+      3. prev_day.close    (previous trading day — always available)
 
     Returns dict keyed by ticker with standard quote fields.
     """
@@ -57,30 +71,83 @@ def fetch_quotes(tickers: list[str]) -> dict:
         try:
             snapshot = client.get_snapshot_ticker("stocks", t)
             if not snapshot:
+                logger.warning(f"Massive: no snapshot returned for {t}")
                 result[t] = {"current_price": None, "error": f"No snapshot for {t}"}
                 continue
 
             day = snapshot.day
             prev = snapshot.prev_day
+            last_trade = snapshot.last_trade
+            last_quote = snapshot.last_quote
 
-            current_price = day.close if day and day.close else None
-            previous_close = prev.close if prev and prev.close else None
+            # Resolve current price with fallback chain
+            current_price = None
+            price_source = None
 
-            day_change_pct = None
-            if current_price and previous_close and previous_close != 0:
+            # 1st: last trade price
+            if last_trade:
+                p = _safe_float(getattr(last_trade, "price", None))
+                if p is not None and p > 0:
+                    current_price = p
+                    price_source = "last_trade"
+
+            # 2nd: day close
+            if current_price is None and day:
+                p = _safe_float(getattr(day, "close", None))
+                if p is not None and p > 0:
+                    current_price = p
+                    price_source = "day.close"
+
+            # 3rd: midpoint of last quote
+            if current_price is None and last_quote:
+                bid = _safe_float(getattr(last_quote, "bid_price", None))
+                ask = _safe_float(getattr(last_quote, "ask_price", None))
+                if bid and ask and bid > 0 and ask > 0:
+                    current_price = (bid + ask) / 2
+                    price_source = "quote_midpoint"
+
+            # 4th: previous day close
+            if current_price is None and prev:
+                p = _safe_float(getattr(prev, "close", None))
+                if p is not None and p > 0:
+                    current_price = p
+                    price_source = "prev_day.close"
+
+            previous_close = _safe_float(prev.close) if prev else None
+
+            # Use the snapshot's own change percent when available
+            day_change_pct = _safe_float(snapshot.todays_change_percent)
+            if day_change_pct is not None:
+                day_change_pct = round(day_change_pct, 2)
+            elif current_price and previous_close and previous_close != 0:
                 day_change_pct = round(
                     ((current_price - previous_close) / previous_close) * 100, 2
                 )
 
+            if current_price is None:
+                logger.warning(
+                    f"Massive: no price resolved for {t} — "
+                    f"day={day}, prev={prev}, last_trade={last_trade}"
+                )
+                result[t] = {"current_price": None, "error": f"No price data for {t}"}
+                continue
+
+            logger.debug(f"Massive: {t} price={current_price} via {price_source}")
+
+            # Enrich with ticker details for name/sector (cached separately)
+            details = fetch_ticker_details(t)
+
             quote = {
-                "current_price": round(current_price, 2) if current_price else None,
-                "previous_close": round(previous_close, 2) if previous_close else None,
+                "current_price": round(current_price, 2),
+                "previous_close": round(previous_close, 2) if previous_close is not None else None,
                 "day_change_pct": day_change_pct,
-                "open": round(day.open, 2) if day and day.open else None,
-                "high": round(day.high, 2) if day and day.high else None,
-                "low": round(day.low, 2) if day and day.low else None,
+                "open": round(day.open, 2) if day and _safe_float(day.open) is not None else None,
+                "high": round(day.high, 2) if day and _safe_float(day.high) is not None else None,
+                "low": round(day.low, 2) if day and _safe_float(day.low) is not None else None,
                 "volume": int(day.volume) if day and day.volume else None,
-                "name": t,
+                "name": details.get("shortName", t),
+                "sector": details.get("sector"),
+                "market_cap": details.get("marketCap"),
             }
 
             settings = get_settings()
@@ -88,7 +155,7 @@ def fetch_quotes(tickers: list[str]) -> dict:
             result[t] = quote
 
         except Exception as e:
-            logger.error(f"Massive snapshot failed for {t}: {e}")
+            logger.error(f"Massive snapshot failed for {t}: {e}", exc_info=True)
             result[t] = {"current_price": None, "error": str(e)}
 
     return result
@@ -177,11 +244,11 @@ def fetch_history(ticker: str, period: str = "1y") -> list[dict]:
             ts = datetime.fromtimestamp(agg.timestamp / 1000) if agg.timestamp else None
             rows.append({
                 "date": ts.strftime("%Y-%m-%d") if ts else None,
-                "open": float(agg.open) if agg.open else 0,
-                "high": float(agg.high) if agg.high else 0,
-                "low": float(agg.low) if agg.low else 0,
-                "close": float(agg.close) if agg.close else 0,
-                "volume": int(agg.volume) if agg.volume else 0,
+                "open": float(agg.open) if agg.open is not None else 0,
+                "high": float(agg.high) if agg.high is not None else 0,
+                "low": float(agg.low) if agg.low is not None else 0,
+                "close": float(agg.close) if agg.close is not None else 0,
+                "volume": int(agg.volume) if agg.volume is not None else 0,
             })
 
         # Cache based on period length
@@ -190,7 +257,7 @@ def fetch_history(ticker: str, period: str = "1y") -> list[dict]:
         return rows
 
     except Exception as e:
-        logger.error(f"Massive history failed for {ticker}: {e}")
+        logger.error(f"Massive history failed for {ticker}: {e}", exc_info=True)
         return []
 
 
@@ -392,16 +459,16 @@ def _extract_option(opt) -> dict:
 
     return {
         "strike": getattr(details, "strike_price", None) if details else None,
-        "last_price": day.close if day and hasattr(day, "close") else None,
-        "bid": getattr(last_quote, "bid", None) if last_quote else None,
-        "ask": getattr(last_quote, "ask", None) if last_quote else None,
-        "implied_volatility": getattr(opt, "implied_volatility", None),
+        "last_price": _safe_float(day.close) if day and hasattr(day, "close") else None,
+        "bid": _safe_float(getattr(last_quote, "bid", None)) if last_quote else None,
+        "ask": _safe_float(getattr(last_quote, "ask", None)) if last_quote else None,
+        "implied_volatility": _safe_float(getattr(opt, "implied_volatility", None)),
         "open_interest": getattr(opt, "open_interest", None),
-        "volume": day.volume if day and hasattr(day, "volume") else None,
-        "delta": getattr(greeks, "delta", None) if greeks else None,
-        "gamma": getattr(greeks, "gamma", None) if greeks else None,
-        "theta": getattr(greeks, "theta", None) if greeks else None,
-        "vega": getattr(greeks, "vega", None) if greeks else None,
+        "volume": int(day.volume) if day and day.volume else None,
+        "delta": _safe_float(getattr(greeks, "delta", None)) if greeks else None,
+        "gamma": _safe_float(getattr(greeks, "gamma", None)) if greeks else None,
+        "theta": _safe_float(getattr(greeks, "theta", None)) if greeks else None,
+        "vega": _safe_float(getattr(greeks, "vega", None)) if greeks else None,
     }
 
 

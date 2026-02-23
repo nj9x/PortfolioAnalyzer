@@ -30,7 +30,13 @@ def get_quotes_for_tickers(tickers: list[str]) -> dict:
         # Try Massive first
         fresh = {}
         if settings.MASSIVE_API_KEY:
-            fresh = massive_api.fetch_quotes(uncached)
+            try:
+                fresh = massive_api.fetch_quotes(uncached)
+                ok = [t for t in fresh if fresh[t].get("current_price")]
+                logger.info(f"Massive quotes: {len(ok)}/{len(uncached)} succeeded")
+            except Exception as e:
+                logger.error(f"Massive fetch_quotes raised: {e}", exc_info=True)
+                fresh = {}
 
         # Fall back to yfinance for any tickers that Massive missed
         missing = [
@@ -38,6 +44,7 @@ def get_quotes_for_tickers(tickers: list[str]) -> dict:
             if t not in fresh or not fresh[t].get("current_price")
         ]
         if missing:
+            logger.info(f"Falling back to yfinance for {missing}")
             yf_data = yahoo_finance.fetch_quotes(missing)
             fresh.update(yf_data)
 
