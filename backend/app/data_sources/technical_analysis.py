@@ -1,15 +1,30 @@
 """Technical analysis indicators computed from OHLCV data via pandas/numpy."""
 
+import logging
 import numpy as np
 import pandas as pd
-from app.data_sources import yahoo_finance
+from app.config import get_settings
+
+logger = logging.getLogger(__name__)
+
+
+def _fetch_history(ticker: str, period: str = "1y") -> list[dict]:
+    """Fetch history from Massive (primary) or yfinance (fallback)."""
+    settings = get_settings()
+    if settings.MASSIVE_API_KEY:
+        from app.data_sources import massive_api
+        history = massive_api.fetch_history(ticker, period=period)
+        if history:
+            return history
+    from app.data_sources import yahoo_finance
+    return yahoo_finance.fetch_history(ticker, period=period)
 
 
 def compute_all_technicals(tickers: list[str]) -> dict:
     """Compute technical indicators for all tickers."""
     results = {}
     for ticker in tickers:
-        history = yahoo_finance.fetch_history(ticker, period="1y")
+        history = _fetch_history(ticker, period="1y")
         if len(history) < 30:
             results[ticker] = {"error": f"Insufficient history for {ticker} ({len(history)} days)"}
             continue

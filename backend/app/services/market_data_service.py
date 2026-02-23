@@ -1,13 +1,20 @@
+import logging
 import asyncio
 from app.services.cache_service import cache
 from app.config import get_settings
 from app.data_sources import yahoo_finance, polymarket, news_api, fred
 from app.data_sources import technical_analysis, fundamentals, options_data
+from app.data_sources import massive_api
 from app.services import risk_service
+
+logger = logging.getLogger(__name__)
 
 
 def get_quotes_for_tickers(tickers: list[str]) -> dict:
-    """Fetch stock quotes, using cache where available."""
+    """Fetch stock quotes, using cache where available.
+
+    Uses Massive as primary source, falls back to yfinance.
+    """
     settings = get_settings()
     uncached = []
     result = {}
@@ -20,7 +27,20 @@ def get_quotes_for_tickers(tickers: list[str]) -> dict:
             uncached.append(t)
 
     if uncached:
-        fresh = yahoo_finance.fetch_quotes(uncached)
+        # Try Massive first
+        fresh = {}
+        if settings.MASSIVE_API_KEY:
+            fresh = massive_api.fetch_quotes(uncached)
+
+        # Fall back to yfinance for any tickers that Massive missed
+        missing = [
+            t for t in uncached
+            if t not in fresh or not fresh[t].get("current_price")
+        ]
+        if missing:
+            yf_data = yahoo_finance.fetch_quotes(missing)
+            fresh.update(yf_data)
+
         for t, data in fresh.items():
             cache.set(f"quote:{t}", data, settings.STOCK_CACHE_TTL)
             result[t] = data
@@ -93,14 +113,29 @@ def get_fundamentals(tickers: list[str]) -> dict:
 
 
 def get_options_data(tickers: list[str]) -> dict:
-    """Fetch options chain data, cached."""
+    """Fetch options chain data, cached.
+
+    Uses Massive as primary source, falls back to yfinance.
+    """
     settings = get_settings()
     cache_key = f"options:{','.join(sorted(tickers))}"
     cached_data = cache.get(cache_key)
     if cached_data:
         return cached_data
 
-    result = options_data.fetch_options_data(tickers)
+    result = {}
+    if settings.MASSIVE_API_KEY:
+        result = massive_api.fetch_options_chain(tickers)
+
+    # Fall back to yfinance for tickers Massive missed
+    missing = [
+        t for t in tickers
+        if t not in result or not result[t].get("has_options")
+    ]
+    if missing:
+        yf_options = options_data.fetch_options_data(missing)
+        result.update(yf_options)
+
     cache.set(cache_key, result, settings.OPTIONS_CACHE_TTL)
     return result
 

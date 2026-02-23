@@ -3,9 +3,22 @@
 import logging
 import numpy as np
 import pandas as pd
+from app.config import get_settings
 from app.data_sources.yahoo_finance import fetch_info_safe
 
 logger = logging.getLogger(__name__)
+
+
+def _fetch_history_for_correlation(ticker: str, period_days: int) -> list[dict]:
+    """Fetch history from Massive (primary) or Alpha Vantage (fallback)."""
+    settings = get_settings()
+    if settings.MASSIVE_API_KEY:
+        from app.data_sources import massive_api
+        history = massive_api.fetch_history_days(ticker, days=period_days)
+        if history:
+            return history
+    from app.data_sources import alpha_vantage
+    return alpha_vantage.fetch_history(ticker, days=period_days)
 
 
 def compute_portfolio_risk(holdings: list[dict], quotes: dict) -> dict:
@@ -127,14 +140,11 @@ def _compute_correlation_matrix(tickers: list[str], period: str = "6mo") -> dict
         return {"high_pairs": [], "avg_correlation": 0}
 
     try:
-        # Use Alpha Vantage daily history for each ticker
-        from app.data_sources import alpha_vantage
-
         period_days = {"3mo": 66, "6mo": 130, "1y": 252}.get(period, 130)
 
         closes_dict = {}
         for t in tickers:
-            history = alpha_vantage.fetch_history(t, days=period_days)
+            history = _fetch_history_for_correlation(t, period_days)
             if history:
                 closes_dict[t] = pd.Series(
                     [h["close"] for h in history],
