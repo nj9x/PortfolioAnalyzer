@@ -1,20 +1,41 @@
+import asyncio
+import logging
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from app.database import get_db
 from app.schemas.analysis import AnalysisReportResponse, AnalysisReportListResponse
 from app.services import analysis_service
 
+logger = logging.getLogger(__name__)
 router = APIRouter()
+
+# Overall timeout for the entire analysis pipeline (5 minutes).
+# The Claude call has its own 180s timeout inside analysis_service,
+# so this is a safety net for the full pipeline.
+_ANALYSIS_TIMEOUT = 300
 
 
 @router.post("/{portfolio_id}/analyze", response_model=AnalysisReportResponse)
 async def trigger_analysis(portfolio_id: int, db: Session = Depends(get_db)):
     """Trigger a new AI analysis for a portfolio."""
     try:
-        report = await analysis_service.run_analysis(db, portfolio_id)
+        report = await asyncio.wait_for(
+            analysis_service.run_analysis(db, portfolio_id),
+            timeout=_ANALYSIS_TIMEOUT,
+        )
         return report
+    except asyncio.TimeoutError:
+        logger.error("Analysis pipeline timed out after %ds for portfolio %d", _ANALYSIS_TIMEOUT, portfolio_id)
+        raise HTTPException(
+            status_code=504,
+            detail=f"Analysis timed out after {_ANALYSIS_TIMEOUT}s. Please try again.",
+        )
     except ValueError as e:
+        # Claude timeout, config errors, or data errors bubble up as ValueError
         raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error("Unexpected analysis error for portfolio %d: %s", portfolio_id, e, exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Analysis failed unexpectedly: {e}")
 
 
 @router.get("/{portfolio_id}/latest", response_model=AnalysisReportResponse | None)

@@ -2,11 +2,7 @@ import json
 import logging
 from sqlalchemy.orm import Session
 
-from app.data_sources.yahoo_finance import fetch_info_safe
-from app.data_sources.alpha_vantage import (
-    fetch_financial_statements,
-    get_company_overview,
-)
+from app.data_sources.massive import fetch_info, fetch_financial_statements, fetch_ticker_overview, fetch_ratios
 from app.data_sources.fred import fetch_risk_free_rate
 from app.models.dcf_valuation import DCFValuation
 from app.schemas.dcf_valuation import DCFRunRequest, WACCInputs
@@ -19,20 +15,19 @@ logger = logging.getLogger(__name__)
 
 def fetch_dcf_financials(ticker: str) -> dict:
     """Gather all data needed to pre-fill the DCF form for a given ticker."""
-    info = fetch_info_safe(ticker)
-    av_financials = fetch_financial_statements(ticker)
-    av_overview = get_company_overview(ticker)
+    info = fetch_info(ticker)
+    financials = fetch_financial_statements(ticker)
+    overview = fetch_ticker_overview(ticker)
+    ratios = fetch_ratios(ticker)
     risk_free_rate = fetch_risk_free_rate() or 0.042
 
-    free_cashflow = info.get("freeCashflow") or av_financials.get("free_cashflow")
-    total_debt = info.get("totalDebt") or av_financials.get("total_debt") or 0
-    total_cash = info.get("totalCash") or av_financials.get("total_cash") or 0
-    shares_outstanding = (
-        info.get("sharesOutstanding") or av_overview.get("shares_outstanding")
-    )
-    beta = info.get("beta") or av_overview.get("beta") or 1.0
-    market_cap = info.get("marketCap") or av_overview.get("market_cap")
-    ebitda = info.get("ebitda") or av_overview.get("ebitda")
+    free_cashflow = info.get("freeCashflow") or financials.get("free_cashflow")
+    total_debt = info.get("totalDebt") or financials.get("total_debt") or 0
+    total_cash = info.get("totalCash") or financials.get("total_cash") or 0
+    shares_outstanding = info.get("sharesOutstanding") or overview.get("shares_outstanding")
+    beta = info.get("beta") or 1.0
+    market_cap = info.get("marketCap") or overview.get("market_cap")
+    ebitda = info.get("ebitda")
     current_price = info.get("currentPrice") or info.get("regularMarketPrice")
 
     wacc_inputs = _compute_wacc_inputs(
@@ -45,35 +40,23 @@ def fetch_dcf_financials(ticker: str) -> dict:
 
     return {
         "ticker": ticker.upper(),
-        "company_name": (
-            info.get("longName") or info.get("shortName") or av_overview.get("name")
-        ),
+        "company_name": info.get("longName") or info.get("shortName") or overview.get("name"),
         "current_price": current_price,
         "free_cashflow": free_cashflow,
-        "revenue": av_overview.get("revenue"),
+        "revenue": None,  # populated from income statement if needed
         "ebitda": ebitda,
-        "net_income": (
-            info.get("netIncomeToCommon") or av_financials.get("net_income")
-        ),
+        "net_income": info.get("netIncomeToCommon") or financials.get("net_income"),
         "total_debt": total_debt,
         "total_cash": total_cash,
         "shares_outstanding": shares_outstanding,
         "beta": beta,
         "market_cap": market_cap,
-        "enterprise_value": (
-            info.get("enterpriseValue") or av_overview.get("enterprise_value")
-        ),
-        "revenue_growth": (
-            info.get("revenueGrowth") or av_overview.get("revenue_growth")
-        ),
-        "earnings_growth": (
-            info.get("earningsGrowth") or av_overview.get("earnings_growth")
-        ),
-        "profit_margins": (
-            info.get("profitMargins") or av_overview.get("profit_margin")
-        ),
+        "enterprise_value": info.get("enterpriseValue") or ratios.get("enterprise_value"),
+        "revenue_growth": info.get("revenueGrowth"),
+        "earnings_growth": info.get("earningsGrowth"),
+        "profit_margins": info.get("profitMargins"),
         "debt_to_equity": info.get("debtToEquity"),
-        "ev_to_ebitda": av_overview.get("ev_to_ebitda"),
+        "ev_to_ebitda": ratios.get("ev_to_ebitda"),
         "risk_free_rate": risk_free_rate,
         "suggested_wacc": suggested_wacc,
         "wacc_inputs": {

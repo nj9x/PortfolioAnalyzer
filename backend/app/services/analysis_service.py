@@ -1,4 +1,8 @@
 import json
+import time
+import asyncio
+import logging
+from concurrent.futures import ThreadPoolExecutor
 from sqlalchemy.orm import Session
 from app.models.portfolio import Portfolio
 from app.models.analysis import AnalysisReport, Recommendation
@@ -8,9 +12,19 @@ from app.claude.prompts import build_user_message
 from app.claude.response_parser import parse_analysis_response
 from app.config import get_settings
 
+logger = logging.getLogger(__name__)
+
+# Dedicated executor for the Claude API call — guaranteed never starved
+# by Massive API rate-limiter sleeps (those use _data_executor in market_data_service).
+_claude_executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="claude")
+
+# Claude-specific timeout — backup for the SDK's own 120s timeout.
+_CLAUDE_TIMEOUT = 150
+
 
 async def run_analysis(db: Session, portfolio_id: int) -> AnalysisReport:
     """Run a full AI analysis on a portfolio."""
+    t0 = time.time()
     portfolio = db.query(Portfolio).filter(Portfolio.id == portfolio_id).first()
     if not portfolio:
         raise ValueError("Portfolio not found")
@@ -34,8 +48,21 @@ async def run_analysis(db: Session, portfolio_id: int) -> AnalysisReport:
         for h in portfolio.holdings
     ]
 
-    # Fetch all market context (now includes technicals, fundamentals, options, risk)
-    context = await get_full_market_context(tickers, holdings=holdings_data)
+    # ── Phase 1: Fetch market data (has its own internal time budget) ──
+    logger.info("=== ANALYSIS START === portfolio=%d, tickers=%s", portfolio_id, tickers)
+    try:
+        context = await get_full_market_context(tickers, holdings=holdings_data)
+    except Exception as e:
+        logger.error("Market data fetch failed entirely: %s", e)
+        # Proceed with empty context — Claude can still analyze holdings
+        context = {
+            "quotes": {}, "news": [], "predictions": [],
+            "economic": {}, "technicals": {}, "fundamentals": {},
+            "options": {}, "risk": {},
+        }
+
+    t1 = time.time()
+    logger.info("Market data collected in %.1fs", t1 - t0)
 
     # Build the prompt with all data sections
     user_message = build_user_message(
@@ -50,9 +77,27 @@ async def run_analysis(db: Session, portfolio_id: int) -> AnalysisReport:
         risk_data=context.get("risk"),
         options=context.get("options"),
     )
+    logger.info("Prompt built: %d chars. Calling Claude...", len(user_message))
 
-    # Call Claude
-    raw_response = analyze_portfolio(user_message)
+    # ── Phase 2: Call Claude on its own dedicated executor ─────────────
+    loop = asyncio.get_running_loop()
+    try:
+        raw_response = await asyncio.wait_for(
+            loop.run_in_executor(_claude_executor, analyze_portfolio, user_message),
+            timeout=_CLAUDE_TIMEOUT,
+        )
+    except asyncio.TimeoutError:
+        logger.error("Claude API call timed out after %ds", _CLAUDE_TIMEOUT)
+        raise ValueError(
+            f"AI generation timed out after {_CLAUDE_TIMEOUT}s. "
+            "The model may be overloaded — please try again in a moment."
+        )
+    except Exception as e:
+        logger.error("Claude API call failed: %s", e)
+        raise ValueError(f"AI generation failed: {e}")
+
+    t2 = time.time()
+    logger.info("Claude responded in %.1fs (%d chars)", t2 - t1, len(raw_response))
 
     # Parse response
     parsed = parse_analysis_response(raw_response)
@@ -90,6 +135,8 @@ async def run_analysis(db: Session, portfolio_id: int) -> AnalysisReport:
 
     db.commit()
     db.refresh(report)
+    total = time.time() - t0
+    logger.info("=== ANALYSIS COMPLETE === portfolio=%d, total=%.1fs", portfolio_id, total)
     return report
 
 

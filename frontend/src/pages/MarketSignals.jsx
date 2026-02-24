@@ -1,6 +1,6 @@
 import { usePortfolioContext } from '../context/PortfolioContext'
-import { useQuotes, useNews, usePredictions, useEconomicIndicators } from '../hooks/useMarketData'
-import StockQuoteCard from '../components/market/StockQuoteCard'
+import { useQuotes, useNews, usePredictions, useEconomicIndicators, useSparklines } from '../hooks/useMarketData'
+import StockListItem from '../components/market/StockListItem'
 import NewsCard from '../components/market/NewsCard'
 import PredictionMarketCard from '../components/market/PredictionMarketCard'
 import EconomicIndicator from '../components/market/EconomicIndicator'
@@ -15,6 +15,7 @@ export default function MarketSignals() {
   const { data: newsData, isLoading: newsLoading } = useNews(selectedPortfolioId)
   const { data: predictionsData, isLoading: predsLoading } = usePredictions()
   const { data: economicData, isLoading: econLoading } = useEconomicIndicators()
+  const { data: sparkData } = useSparklines(selectedPortfolioId)
 
   if (!selectedPortfolioId) {
     return (
@@ -30,6 +31,7 @@ export default function MarketSignals() {
   const articles = newsData?.articles || []
   const predictions = predictionsData?.events || []
   const indicators = economicData?.indicators || {}
+  const sparklines = sparkData?.sparklines || {}
 
   return (
     <div className="space-y-8">
@@ -45,9 +47,14 @@ export default function MarketSignals() {
             {quotesError && (
               <ErrorBanner message={`Failed to load quotes: ${quotesError.response?.data?.detail || quotesError.message}`} />
             )}
-            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3">
+            <div className="space-y-2">
               {Object.entries(quotes).map(([ticker, data]) => (
-                <StockQuoteCard key={ticker} ticker={ticker} data={data} />
+                <StockListItem
+                  key={ticker}
+                  ticker={ticker}
+                  data={data}
+                  sparkline={sparklines[ticker]}
+                />
               ))}
             </div>
           </>

@@ -1,6 +1,8 @@
+import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from app.database import get_db
+from app.config import get_settings
 from app.services import market_data_service, portfolio_service
 from app.services.cache_service import cache
 
@@ -60,6 +62,19 @@ def get_economic_indicators():
     """Get key FRED economic indicators."""
     indicators = market_data_service.get_economic_indicators()
     return {"indicators": indicators}
+
+
+@router.get("/sparklines")
+def get_sparklines(
+    portfolio_id: int | None = Query(None),
+    tickers: str | None = Query(None),
+    days: int = Query(7, ge=1, le=30),
+    db: Session = Depends(get_db),
+):
+    """Get mini sparkline data (last N daily closes) for portfolio or tickers."""
+    ticker_list = _resolve_tickers(portfolio_id, tickers, db)
+    data = market_data_service.get_sparklines(ticker_list, days=days)
+    return {"sparklines": data}
 
 
 @router.get("/technicals")
@@ -123,3 +138,39 @@ def refresh_cache():
     """Clear all cached market data to force fresh fetches."""
     cache.clear()
     return {"status": "Cache cleared"}
+
+
+@router.get("/debug")
+def debug_api():
+    """Diagnostic: test Massive API connectivity and key validity."""
+    settings = get_settings()
+    key = settings.MASSIVE_API_KEY
+    result = {
+        "key_configured": bool(key),
+        "key_prefix": key[:8] + "..." if key else None,
+    }
+
+    if not key:
+        result["error"] = "MASSIVE_API_KEY not set in environment"
+        return result
+
+    # Test with a simple AAPL snapshot call
+    test_url = "https://api.massive.com/v2/snapshot/locale/us/markets/stocks/tickers/AAPL"
+    try:
+        resp = httpx.get(test_url, params={"apiKey": key}, timeout=10)
+        result["status_code"] = resp.status_code
+        result["response_preview"] = resp.text[:500]
+        if resp.status_code == 200:
+            data = resp.json()
+            ticker_data = data.get("ticker", {})
+            day = ticker_data.get("day", {})
+            result["aapl_price"] = day.get("c")
+            result["api_status"] = data.get("status")
+            result["success"] = True
+        else:
+            result["success"] = False
+    except Exception as e:
+        result["success"] = False
+        result["error"] = str(e)
+
+    return result

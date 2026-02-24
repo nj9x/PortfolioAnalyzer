@@ -34,6 +34,15 @@ export function useEconomicIndicators() {
   })
 }
 
+export function useSparklines(portfolioId) {
+  return useQuery({
+    queryKey: ['sparklines', portfolioId],
+    queryFn: () => marketApi.getSparklines(portfolioId),
+    enabled: !!portfolioId,
+    refetchInterval: 5 * 60 * 1000,
+  })
+}
+
 export function useTechnicals(portfolioId) {
   return useQuery({
     queryKey: ['technicals', portfolioId],

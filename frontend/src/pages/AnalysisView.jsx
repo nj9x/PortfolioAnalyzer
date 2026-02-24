@@ -9,10 +9,11 @@ import TechnicalDashboard from '../components/analysis/TechnicalDashboard'
 import FundamentalScreening from '../components/analysis/FundamentalScreening'
 import RiskDashboard from '../components/analysis/RiskDashboard'
 import OptionsMonitor from '../components/analysis/OptionsMonitor'
+import AnalysisLoadingScreen from '../components/analysis/AnalysisLoadingScreen'
 import LoadingSpinner from '../components/common/LoadingSpinner'
 import EmptyState from '../components/common/EmptyState'
 import {
-  BrainCircuit, Play, Clock, BarChart3, DollarSign, Shield, Gauge, LayoutDashboard
+  BrainCircuit, Play, Clock, BarChart3, DollarSign, Shield, Gauge, LayoutDashboard, Loader2
 } from 'lucide-react'
 import clsx from 'clsx'
 
@@ -71,7 +72,7 @@ export default function AnalysisView() {
         >
           {trigger.isPending ? (
             <>
-              <LoadingSpinner message="" />
+              <Loader2 size={16} className="animate-spin" />
               Analyzing...
             </>
           ) : (
@@ -83,20 +84,27 @@ export default function AnalysisView() {
         </button>
       </div>
 
-      {/* Analysis status messages */}
+      {/* Analysis loading screen */}
       {trigger.isPending && (
-        <div className="bg-blue-50 border border-blue-200 rounded-lg p-6 text-center">
-          <LoadingSpinner message="Claude is analyzing your portfolio with technical, fundamental, risk, and options data. This may take a moment..." />
-        </div>
+        <AnalysisLoadingScreen portfolioName={portfolio?.name} />
       )}
 
       {trigger.isError && (
-        <div className="bg-red-50 border border-red-200 rounded-lg p-4 text-sm text-red-700">
-          Analysis failed: {trigger.error?.response?.data?.detail || 'Unknown error'}
+        <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+          <p className="text-sm font-medium text-red-800">Analysis Failed</p>
+          <p className="text-sm text-red-700 mt-1">
+            {trigger.error?.response?.data?.detail || trigger.error?.message || 'Unknown error'}
+          </p>
+          <button
+            onClick={handleAnalyze}
+            className="mt-3 text-sm font-medium text-red-700 underline hover:text-red-900"
+          >
+            Try again
+          </button>
         </div>
       )}
 
-      {isLoading && <LoadingSpinner message="Loading latest analysis..." />}
+      {isLoading && !trigger.isPending && <LoadingSpinner message="Loading latest analysis..." />}
 
       {!isLoading && !analysis && !trigger.isPending && (
         <EmptyState

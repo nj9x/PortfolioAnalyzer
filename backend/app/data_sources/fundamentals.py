@@ -1,21 +1,17 @@
-"""Greenblatt-style fundamental screening via yfinance data."""
+"""Greenblatt-style fundamental screening via Massive data."""
 
 import logging
-from app.data_sources.yahoo_finance import fetch_info_safe
+from app.data_sources.massive import fetch_info
 
 logger = logging.getLogger(__name__)
 
 
 def fetch_fundamentals(tickers: list[str]) -> dict:
-    """Fetch fundamental metrics for a list of tickers.
-
-    yfinance .info already provides all needed fields:
-    freeCashflow, netIncomeToCommon, totalDebt, totalCash, enterpriseValue, etc.
-    """
+    """Fetch fundamental metrics for a list of tickers."""
     results = {}
     for ticker_sym in tickers:
         try:
-            info = fetch_info_safe(ticker_sym)
+            info = fetch_info(ticker_sym)
             results[ticker_sym] = _extract_fundamentals(info, ticker_sym)
         except Exception as e:
             logger.warning(f"Fundamentals failed for {ticker_sym}: {e}")
@@ -24,7 +20,7 @@ def fetch_fundamentals(tickers: list[str]) -> dict:
 
 
 def _extract_fundamentals(info: dict, ticker: str) -> dict:
-    """Extract all fundamental metrics from yfinance info dict."""
+    """Extract all fundamental metrics from info dict."""
     valuation = _compute_valuation(info)
     quality = _compute_quality(info)
     growth = _compute_growth(info)
@@ -43,7 +39,7 @@ def _extract_fundamentals(info: dict, ticker: str) -> dict:
 
 
 def _compute_valuation(info: dict) -> dict:
-    """P/E, EV/EBIT, earnings yield, FCF yield."""
+    """P/E, EV/EBITDA, earnings yield, FCF yield."""
     pe = info.get("trailingPE")
     forward_pe = info.get("forwardPE")
     ev = info.get("enterpriseValue")
@@ -105,7 +101,7 @@ def _compute_health(info: dict) -> dict:
     """Debt/Equity, current ratio."""
     de = info.get("debtToEquity")
     return {
-        "debt_to_equity": round(de / 100, 2) if de else None,  # yfinance returns as percentage
+        "debt_to_equity": round(de / 100, 2) if de else None,  # debtToEquity is returned as percentage
         "current_ratio": _safe_round(info.get("currentRatio")),
         "quick_ratio": _safe_round(info.get("quickRatio")),
     }

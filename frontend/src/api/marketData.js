@@ -12,6 +12,9 @@ export const getPredictions = () =>
 export const getEconomicIndicators = () =>
   api.get('/market-data/economic').then(r => r.data)
 
+export const getSparklines = (portfolioId) =>
+  api.get('/market-data/sparklines', { params: { portfolio_id: portfolioId } }).then(r => r.data)
+
 export const getTechnicals = (portfolioId) =>
   api.get('/market-data/technicals', { params: { portfolio_id: portfolioId } }).then(r => r.data)
 

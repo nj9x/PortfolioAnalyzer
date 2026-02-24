@@ -3,7 +3,7 @@
 import logging
 import numpy as np
 import pandas as pd
-from app.data_sources.yahoo_finance import fetch_info_safe
+from app.data_sources.massive import fetch_info, fetch_history_days
 
 logger = logging.getLogger(__name__)
 
@@ -52,11 +52,11 @@ def _compute_position_weights(holdings: list[dict], quotes: dict) -> dict:
 
 
 def _compute_portfolio_beta(weights: dict, tickers: list[str]) -> dict:
-    """Weighted-average beta from yfinance."""
+    """Weighted-average beta."""
     betas = {}
     for t in tickers:
         try:
-            info = fetch_info_safe(t)
+            info = fetch_info(t)
             beta = info.get("beta")
             betas[t] = round(beta, 2) if beta else 1.0
         except Exception:
@@ -127,14 +127,11 @@ def _compute_correlation_matrix(tickers: list[str], period: str = "6mo") -> dict
         return {"high_pairs": [], "avg_correlation": 0}
 
     try:
-        # Use Alpha Vantage daily history for each ticker
-        from app.data_sources import alpha_vantage
-
         period_days = {"3mo": 66, "6mo": 130, "1y": 252}.get(period, 130)
 
         closes_dict = {}
         for t in tickers:
-            history = alpha_vantage.fetch_history(t, days=period_days)
+            history = fetch_history_days(t, days=period_days)
             if history:
                 closes_dict[t] = pd.Series(
                     [h["close"] for h in history],

@@ -16,7 +16,7 @@ class Settings(BaseSettings):
     ANTHROPIC_API_KEY: str = ""
     NEWS_API_KEY: str = ""
     FRED_API_KEY: str = ""
-    ALPHA_VANTAGE_API_KEY: str = ""
+    MASSIVE_API_KEY: str = ""
 
     # Deployment settings
     PORT: int = 8000
@@ -24,12 +24,11 @@ class Settings(BaseSettings):
     FRONTEND_DIR: str = ""  # path to built frontend dist; empty = don't serve
 
     # Rate limits
-    YAHOO_REQUESTS_PER_MINUTE: int = 30
     NEWS_API_REQUESTS_PER_DAY: int = 100
 
     # Claude settings
     CLAUDE_MODEL: str = "claude-sonnet-4-5-20250929"
-    CLAUDE_MAX_TOKENS: int = 16384
+    CLAUDE_MAX_TOKENS: int = 4096
 
     # Cache TTLs (seconds)
     STOCK_CACHE_TTL: int = 300
@@ -40,7 +39,6 @@ class Settings(BaseSettings):
     FUNDAMENTALS_CACHE_TTL: int = 3600
     OPTIONS_CACHE_TTL: int = 300
     RISK_CACHE_TTL: int = 300
-    ALPHA_VANTAGE_CACHE_TTL: int = 86400  # 24 hours for company overview
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 

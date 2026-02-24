@@ -1,7 +1,8 @@
 import api from './client'
 
+// Analysis can take up to 5 minutes (market data + Claude generation)
 export const triggerAnalysis = (portfolioId) =>
-  api.post(`/analysis/${portfolioId}/analyze`).then(r => r.data)
+  api.post(`/analysis/${portfolioId}/analyze`, null, { timeout: 360000 }).then(r => r.data)
 
 export const getLatestAnalysis = (portfolioId) =>
   api.get(`/analysis/${portfolioId}/latest`).then(r => r.data)
