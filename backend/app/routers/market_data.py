@@ -133,6 +133,17 @@ def get_portfolio_risk(
     return {"risk": data}
 
 
+@router.get("/history")
+def get_history(
+    ticker: str = Query(..., description="Single ticker symbol"),
+    period: str = Query("1y", description="Period: 1mo, 3mo, 6mo, 1y, 2y, 5y"),
+):
+    """Get historical OHLCV bars for a single ticker."""
+    from app.data_sources.massive import fetch_history
+    data = fetch_history(ticker.strip().upper(), period=period)
+    return {"ticker": ticker.upper(), "period": period, "bars": data}
+
+
 @router.post("/refresh")
 def refresh_cache():
     """Clear all cached market data to force fresh fetches."""

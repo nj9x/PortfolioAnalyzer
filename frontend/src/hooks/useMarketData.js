@@ -78,3 +78,40 @@ export function usePortfolioRisk(portfolioId) {
     refetchInterval: 5 * 60 * 1000,
   })
 }
+
+// Single-ticker hooks for stock detail page
+export function useTickerQuote(ticker) {
+  return useQuery({
+    queryKey: ['ticker-quote', ticker],
+    queryFn: () => marketApi.getTickerQuote(ticker),
+    enabled: !!ticker,
+    refetchInterval: 5 * 60 * 1000,
+  })
+}
+
+export function useTickerFundamentals(ticker) {
+  return useQuery({
+    queryKey: ['ticker-fundamentals', ticker],
+    queryFn: () => marketApi.getTickerFundamentals(ticker),
+    enabled: !!ticker,
+    staleTime: 60 * 60 * 1000,
+  })
+}
+
+export function useTickerTechnicals(ticker) {
+  return useQuery({
+    queryKey: ['ticker-technicals', ticker],
+    queryFn: () => marketApi.getTickerTechnicals(ticker),
+    enabled: !!ticker,
+    refetchInterval: 5 * 60 * 1000,
+  })
+}
+
+export function useTickerHistory(ticker, period) {
+  return useQuery({
+    queryKey: ['ticker-history', ticker, period],
+    queryFn: () => marketApi.getTickerHistory(ticker, period),
+    enabled: !!ticker,
+    staleTime: 5 * 60 * 1000,
+  })
+}

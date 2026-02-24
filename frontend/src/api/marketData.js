@@ -29,3 +29,16 @@ export const getPortfolioRisk = (portfolioId) =>
 
 export const refreshCache = () =>
   api.post('/market-data/refresh').then(r => r.data)
+
+// Single-ticker endpoints for stock detail page
+export const getTickerQuote = (ticker) =>
+  api.get('/market-data/quotes', { params: { tickers: ticker } }).then(r => r.data)
+
+export const getTickerFundamentals = (ticker) =>
+  api.get('/market-data/fundamentals', { params: { tickers: ticker } }).then(r => r.data)
+
+export const getTickerTechnicals = (ticker) =>
+  api.get('/market-data/technicals', { params: { tickers: ticker } }).then(r => r.data)
+
+export const getTickerHistory = (ticker, period = '1y') =>
+  api.get('/market-data/history', { params: { ticker, period } }).then(r => r.data)
