@@ -76,23 +76,32 @@ def fetch_snapshot(ticker: str) -> dict:
         return {}
 
     day = t.get("day", {})
+    minute = t.get("min", {})
     prev = t.get("prevDay", {})
+
+    # Determine current price with fallback chain:
+    # 1) day close (during market hours)
+    # 2) latest minute bar close (after-hours / pre-market)
+    # 3) fair market value (if plan supports it)
+    # 4) previous day close (last resort)
+    raw_price = (
+        day.get("c")
+        or minute.get("c")
+        or t.get("fmv")
+        or prev.get("c")
+    )
+
     result = {
-        "current_price": round(day.get("c", 0), 2) if day.get("c") else None,
-        "open": day.get("o"),
-        "high": day.get("h"),
-        "low": day.get("l"),
-        "volume": day.get("v"),
-        "vwap": day.get("vw"),
+        "current_price": round(raw_price, 2) if raw_price else None,
+        "open": day.get("o") or minute.get("o"),
+        "high": day.get("h") or minute.get("h"),
+        "low": day.get("l") or minute.get("l"),
+        "volume": day.get("v") or minute.get("v"),
+        "vwap": day.get("vw") or minute.get("vw"),
         "previous_close": prev.get("c"),
         "day_change_pct": round(t.get("todaysChangePerc", 0), 2) if t.get("todaysChangePerc") is not None else None,
         "day_change": round(t.get("todaysChange", 0), 2) if t.get("todaysChange") is not None else None,
-        "fmv": t.get("fmv"),
     }
-
-    # Use fmv as current_price if day close isn't populated yet (pre-market)
-    if not result["current_price"] and result["fmv"]:
-        result["current_price"] = round(result["fmv"], 2)
 
     cache.set(cache_key, result, 60)  # 1 min cache for snapshots
 
