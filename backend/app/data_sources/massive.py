@@ -117,9 +117,10 @@ def fetch_quotes(tickers: list[str]) -> dict:
     for t in tickers:
         snap = fetch_snapshot(t)
         if snap and snap.get("current_price"):
-            # Add company name from overview (cached 24h, very cheap)
+            # Add company name + market cap from overview (cached 24h, very cheap)
             overview = fetch_ticker_overview(t)
             snap["name"] = overview.get("name", t)
+            snap["market_cap"] = overview.get("market_cap")
             data[t] = snap
         else:
             data[t] = {"current_price": None, "error": f"No data for {t}"}

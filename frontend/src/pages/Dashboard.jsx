@@ -1,6 +1,6 @@
 import { usePortfolioContext } from '../context/PortfolioContext'
 import { usePortfolio } from '../hooks/usePortfolios'
-import { useQuotes, useNews, useSparklines } from '../hooks/useMarketData'
+import { useQuotes, useNews } from '../hooks/useMarketData'
 import { useLatestAnalysis } from '../hooks/useAnalysis'
 import PortfolioSummary from '../components/portfolio/PortfolioSummary'
 import StockListItem from '../components/market/StockListItem'
@@ -19,7 +19,6 @@ export default function Dashboard() {
   const { data: quotesData, isLoading: quotesLoading, error: quotesError } = useQuotes(selectedPortfolioId)
   const { data: newsData } = useNews(selectedPortfolioId)
   const { data: analysis } = useLatestAnalysis(selectedPortfolioId)
-  const { data: sparkData } = useSparklines(selectedPortfolioId)
 
   if (!selectedPortfolioId) {
     return (
@@ -42,7 +41,6 @@ export default function Dashboard() {
   const quotes = quotesData?.quotes || {}
   const articles = newsData?.articles || []
   const holdings = portfolio?.holdings || []
-  const sparklines = sparkData?.sparklines || {}
 
   return (
     <div className="space-y-6">
@@ -66,7 +64,7 @@ export default function Dashboard() {
         )}
       </div>
 
-      {/* Stock watchlist */}
+      {/* Stock cards grid */}
       {quotesLoading ? (
         <LoadingSpinner message="Loading market data..." />
       ) : (
@@ -75,13 +73,12 @@ export default function Dashboard() {
           {quotesError && (
             <ErrorBanner message={`Failed to load quotes: ${quotesError.response?.data?.detail || quotesError.message}`} />
           )}
-          <div className="space-y-2">
+          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3">
             {holdings.map((h) => (
               <StockListItem
                 key={h.ticker}
                 ticker={h.ticker}
                 data={quotes[h.ticker]}
-                sparkline={sparklines[h.ticker]}
               />
             ))}
           </div>

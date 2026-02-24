@@ -1,86 +1,60 @@
-import { TrendingUp, TrendingDown, Minus } from 'lucide-react'
 import clsx from 'clsx'
-import MiniSparkline from './MiniSparkline'
 
-export default function StockListItem({ ticker, data, sparkline }) {
+function formatMarketCap(val) {
+  if (!val) return null
+  if (val >= 1e12) return `$${(val / 1e12).toFixed(2)}T`
+  if (val >= 1e9) return `$${(val / 1e9).toFixed(2)}B`
+  if (val >= 1e6) return `$${(val / 1e6).toFixed(1)}M`
+  return `$${val.toLocaleString()}`
+}
+
+export default function StockListItem({ ticker, data }) {
   if (!data || data.error) {
     return (
-      <div className="flex items-center justify-between bg-white rounded-lg border border-gray-200 px-4 py-3">
-        <div className="flex items-center gap-3">
-          <div>
-            <p className="font-semibold text-gray-900 text-sm">{ticker}</p>
-            <p className="text-xs text-gray-400">Data unavailable</p>
-          </div>
-        </div>
+      <div className="bg-white rounded-xl border border-gray-200 p-4">
+        <p className="font-bold text-gray-900 text-sm">{ticker}</p>
+        <p className="text-xs text-gray-400 mt-1">Data unavailable</p>
       </div>
     )
   }
 
   const changePct = data.day_change_pct
-  const changeDollar = data.day_change
   const isUp = changePct > 0
   const isDown = changePct < 0
 
   return (
-    <div className="flex items-center justify-between bg-white rounded-lg border border-gray-200 px-4 py-3 hover:bg-gray-50 transition-colors">
-      {/* Left: Ticker + Name */}
-      <div className="flex items-center gap-4 min-w-0 flex-1">
-        <div className="min-w-[80px]">
-          <p className="font-semibold text-gray-900 text-sm">{ticker}</p>
-          <p className="text-xs text-gray-500 truncate max-w-[120px]">
-            {data.name || ticker}
-          </p>
+    <div className="bg-white rounded-xl border border-gray-200 p-4 hover:shadow-md transition-shadow">
+      {/* Top row: icon badge + change pill */}
+      <div className="flex items-start justify-between mb-3">
+        <div className="w-10 h-10 rounded-lg bg-gray-100 flex items-center justify-center text-sm font-bold text-gray-600 shrink-0">
+          {ticker.slice(0, 2)}
         </div>
-
-        {/* Sparkline */}
-        <MiniSparkline data={sparkline} width={80} height={32} />
+        <span
+          className={clsx(
+            'text-xs font-semibold px-2 py-0.5 rounded-full',
+            isUp && 'bg-green-50 text-green-700',
+            isDown && 'bg-red-50 text-red-700',
+            !isUp && !isDown && 'bg-gray-50 text-gray-500'
+          )}
+        >
+          {changePct != null
+            ? `${changePct >= 0 ? '+' : ''}${changePct.toFixed(2)}%`
+            : '—'}
+        </span>
       </div>
 
-      {/* Right: Price + Change + Icon */}
-      <div className="flex items-center gap-4 shrink-0">
-        {/* Price */}
-        <p className="font-semibold text-gray-900 text-sm tabular-nums text-right min-w-[70px]">
-          ${data.current_price?.toFixed(2) ?? '-'}
+      {/* Ticker + Name */}
+      <p className="font-bold text-gray-900 text-sm leading-tight">{ticker}</p>
+      <p className="text-xs text-gray-500 truncate mt-0.5">{data.name || ticker}</p>
+
+      {/* Price + Market Cap */}
+      <div className="mt-3 flex items-end justify-between">
+        <p className="text-lg font-semibold text-gray-900 tabular-nums leading-none">
+          ${data.current_price?.toFixed(2) ?? '—'}
         </p>
-
-        {/* Change values */}
-        <div className="text-right min-w-[90px]">
-          <p
-            className={clsx(
-              'text-sm font-medium tabular-nums',
-              isUp && 'text-green-600',
-              isDown && 'text-red-600',
-              !isUp && !isDown && 'text-gray-500'
-            )}
-          >
-            {changeDollar != null
-              ? `${changeDollar >= 0 ? '+' : ''}${changeDollar.toFixed(2)}`
-              : '-'}
-          </p>
-          <p
-            className={clsx(
-              'text-xs tabular-nums',
-              isUp && 'text-green-500',
-              isDown && 'text-red-500',
-              !isUp && !isDown && 'text-gray-400'
-            )}
-          >
-            {changePct != null
-              ? `${changePct >= 0 ? '+' : ''}${changePct.toFixed(2)}%`
-              : '-'}
-          </p>
-        </div>
-
-        {/* Trend icon */}
-        <div className="w-5">
-          {isUp ? (
-            <TrendingUp size={16} className="text-green-500" />
-          ) : isDown ? (
-            <TrendingDown size={16} className="text-red-500" />
-          ) : (
-            <Minus size={16} className="text-gray-400" />
-          )}
-        </div>
+        {data.market_cap && (
+          <p className="text-xs text-gray-400">{formatMarketCap(data.market_cap)}</p>
+        )}
       </div>
     </div>
   )
