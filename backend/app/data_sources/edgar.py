@@ -268,6 +268,7 @@ def fetch_recent_filings(
                 "form": form,
                 "filing_date": dates[i],
                 "accession": accessions[i],
+                "primary_doc": primary_docs[i] if i < len(primary_docs) else "",
                 "description": descriptions[i] if i < len(descriptions) else "",
                 "url": filing_url,
             })
@@ -424,14 +425,31 @@ def fetch_filing_content(accession: str, cik: str, primary_doc: str = "") -> dic
             resp.raise_for_status()
             index_data = resp.json()
             items = index_data.get("directory", {}).get("item", [])
-            # Find the primary document (prefer .htm/.html)
+            # Find the primary document (prefer .htm/.html, skip R-files
+            # and the full-submission .txt that contains SGML headers)
+            htm_candidates = []
             for item in items:
                 name = item.get("name", "")
-                if name.endswith((".htm", ".html")) and not name.startswith("R"):
-                    primary_doc = name
-                    break
-            if not primary_doc and items:
-                primary_doc = items[0].get("name", "")
+                size = int(item.get("size", 0) or 0)
+                if not name.endswith((".htm", ".html")):
+                    continue
+                if name.startswith("R") or name.startswith("r"):
+                    continue
+                htm_candidates.append((name, size))
+            if htm_candidates:
+                # Pick the largest .htm file — the actual filing is almost
+                # always the biggest HTML document in the directory.
+                htm_candidates.sort(key=lambda x: x[1], reverse=True)
+                primary_doc = htm_candidates[0][0]
+            elif items:
+                # Last resort: first item that isn't the accession .txt
+                for item in items:
+                    name = item.get("name", "")
+                    if not name.endswith(".txt"):
+                        primary_doc = name
+                        break
+                if not primary_doc:
+                    primary_doc = items[0].get("name", "")
 
         if not primary_doc:
             return {"error": "Could not determine primary document"}
@@ -446,6 +464,17 @@ def fetch_filing_content(accession: str, cik: str, primary_doc: str = "") -> dic
 
         content_type = resp.headers.get("content-type", "")
         raw_html = resp.text
+
+        # Strip SEC SGML wrapper if present (e.g. <SEC-DOCUMENT>...<SEC-HEADER>...)
+        # The actual filing HTML starts at the first <html or <!DOCTYPE tag.
+        if "<SEC-DOCUMENT>" in raw_html[:500] or "<SEC-HEADER>" in raw_html[:500]:
+            html_start = re.search(r"(?i)<(!DOCTYPE\s+html|html)", raw_html)
+            if html_start:
+                raw_html = raw_html[html_start.start():]
+                # Also strip any trailing SGML closing tags
+                sgml_end = re.search(r"</SEC-DOCUMENT>", raw_html, re.IGNORECASE)
+                if sgml_end:
+                    raw_html = raw_html[:sgml_end.start()]
 
         # Convert HTML to plain text
         if "html" in content_type or raw_html.strip().startswith(("<", "<!DOCTYPE")):

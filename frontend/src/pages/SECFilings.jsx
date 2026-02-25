@@ -92,7 +92,7 @@ export default function SECFilings() {
     queryFn: () => getFilingContent(
       selectedFiling.accession,
       filingsData?.cik || '',
-      ''
+      selectedFiling.primary_doc || ''
     ),
     enabled: !!selectedFiling?.accession && !!filingsData?.cik,
     staleTime: 60 * 60 * 1000,
