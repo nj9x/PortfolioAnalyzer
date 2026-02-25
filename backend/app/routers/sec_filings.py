@@ -55,7 +55,7 @@ def get_filing_content(
 ):
     """Fetch the plain-text content of a specific SEC filing document."""
     settings = get_settings()
-    cache_key = f"filing_content:{accession}"
+    cache_key = f"filing_content:{accession}:{doc}"
     cached = cache.get(cache_key)
     if cached:
         return cached
@@ -83,7 +83,7 @@ def ai_search_filing(req: AiSearchRequest):
         raise HTTPException(status_code=503, detail="ANTHROPIC_API_KEY not configured")
 
     # Get the filing content (from cache or fresh)
-    cache_key = f"filing_content:{req.accession}"
+    cache_key = f"filing_content:{req.accession}:{req.doc}"
     cached = cache.get(cache_key)
     if cached and cached.get("content"):
         content = cached["content"]

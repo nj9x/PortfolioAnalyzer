@@ -415,6 +415,11 @@ def fetch_filing_content(accession: str, cik: str, primary_doc: str = "") -> dic
     accession_clean = accession.replace("-", "")
 
     try:
+        # If primary_doc is the full-submission .txt file, ignore it and
+        # discover the actual HTML document from the filing index instead.
+        if primary_doc and primary_doc.endswith(".txt"):
+            primary_doc = ""
+
         # If no primary doc specified, get the filing index
         if not primary_doc:
             index_url = (
