@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect, useCallback, useMemo } from 'react'
 import { useQuery, useMutation } from '@tanstack/react-query'
 import { searchFilings, getFilingContent, aiSearchFiling, aiAnalyzeFiling } from '../api/secFilings'
+import { useTickerSearch } from '../hooks/useChartAnalysis'
 import EmptyState from '../components/common/EmptyState'
 import DOMPurify from 'dompurify'
 import {
@@ -37,9 +38,13 @@ export default function SECFilings() {
   const [viewMode, setViewMode] = useState('document') // 'document' | 'text'
   const [aiAnalysis, setAiAnalysis] = useState(null)
   const [showAnalysisPanel, setShowAnalysisPanel] = useState(false)
+  const [showDropdown, setShowDropdown] = useState(false)
   const contentRef = useRef(null)
   const iframeRef = useRef(null)
   const searchInputRef = useRef(null)
+
+  // Ticker autocomplete
+  const { data: tickerResults } = useTickerSearch(ticker)
 
   // Fetch filings list
   const {
@@ -180,10 +185,38 @@ export default function SECFilings() {
             <input
               type="text"
               value={ticker}
-              onChange={(e) => setTicker(e.target.value.toUpperCase())}
+              onChange={(e) => { setTicker(e.target.value.toUpperCase()); setShowDropdown(true) }}
+              onFocus={() => setShowDropdown(true)}
+              onBlur={() => setTimeout(() => setShowDropdown(false), 150)}
               placeholder="Enter ticker (e.g. AAPL)"
               className="w-full pl-9 pr-3 py-2.5 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent font-mono"
+              autoComplete="off"
             />
+            {/* Ticker autocomplete dropdown */}
+            {showDropdown && ticker.length >= 1 && tickerResults?.length > 0 && (
+              <div className="absolute z-50 top-full left-0 right-0 mt-1 bg-white border border-gray-200 rounded-lg shadow-lg max-h-56 overflow-y-auto">
+                {tickerResults.map((t) => (
+                  <button
+                    key={t.ticker}
+                    type="button"
+                    onMouseDown={(e) => e.preventDefault()}
+                    onClick={() => {
+                      setTicker(t.ticker)
+                      setShowDropdown(false)
+                    }}
+                    className="w-full text-left px-3 py-2 hover:bg-blue-50 flex items-center justify-between gap-2 text-sm transition-colors"
+                  >
+                    <div className="flex items-center gap-2 min-w-0">
+                      <span className="font-mono font-semibold text-blue-700">{t.ticker}</span>
+                      <span className="text-gray-500 truncate">{t.name}</span>
+                    </div>
+                    {t.primary_exchange && (
+                      <span className="text-xs text-gray-400 shrink-0">{t.primary_exchange}</span>
+                    )}
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
           <button
             type="submit"
