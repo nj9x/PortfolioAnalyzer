@@ -26,3 +26,6 @@ export const analyzeTicker = (ticker, userNotes = '') =>
 
 export const searchTickers = (query) =>
   api.get('/chart-analysis/search-tickers', { params: { q: query } }).then(r => r.data)
+
+export const parseVoiceCommand = (transcript) =>
+  api.post('/chart-analysis/parse-voice', { transcript }).then(r => r.data)

@@ -50,6 +50,23 @@ def analyze_ticker(
         raise HTTPException(status_code=400, detail=str(e))
 
 
+@router.post("/parse-voice")
+def parse_voice_command_endpoint(payload: dict = Body(...)):
+    """Parse a voice transcript into a ticker + notes intent."""
+    transcript = payload.get("transcript", "").strip()
+    if not transcript:
+        raise HTTPException(status_code=400, detail="Transcript is required")
+    if len(transcript) > 500:
+        raise HTTPException(status_code=400, detail="Transcript too long (max 500 chars)")
+
+    from app.claude.client import parse_voice_command
+
+    try:
+        return parse_voice_command(transcript)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Voice command parsing failed: {str(e)}")
+
+
 @router.get("/history", response_model=list[ChartAnalysisListResponse])
 def get_history(limit: int = 50, db: Session = Depends(get_db)):
     """Get chart analysis history."""

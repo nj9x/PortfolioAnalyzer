@@ -1,13 +1,14 @@
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useEffect } from 'react'
 import { useDropzone } from 'react-dropzone'
-import { useAnalyzeChart, useChartHistory, useChartAnalysis, useAnalyzeTicker, useTickerSearch } from '../hooks/useChartAnalysis'
+import { useAnalyzeChart, useChartHistory, useChartAnalysis, useAnalyzeTicker, useTickerSearch, useVoiceCommand } from '../hooks/useChartAnalysis'
 import { getChartImageUrl } from '../api/chartAnalysis'
 import ChartAnalysisResults from '../components/chart/ChartAnalysisResults'
 import ChartAnalysisLoading from '../components/chart/ChartAnalysisLoading'
 import LoadingSpinner from '../components/common/LoadingSpinner'
 import EmptyState from '../components/common/EmptyState'
 import {
-  ImagePlus, Play, Upload, X, Clock, TrendingUp, TrendingDown, Minus, Trash2, Search, Loader2
+  ImagePlus, Play, Upload, X, Clock, TrendingUp, TrendingDown, Minus, Trash2, Search, Loader2,
+  Mic, MicOff, CheckCircle2
 } from 'lucide-react'
 import clsx from 'clsx'
 
@@ -34,10 +35,32 @@ export default function ChartAnalysis() {
   const analyze = useAnalyzeChart()
   const analyzeTicker = useAnalyzeTicker()
   const { data: tickerResults = [], isFetching: isSearching } = useTickerSearch(tickerInput)
+  const voice = useVoiceCommand()
   const { data: history = [] } = useChartHistory()
   const { data: selectedAnalysis } = useChartAnalysis(selectedId)
 
   const isPending = analyze.isPending || analyzeTicker.isPending
+
+  // Auto-trigger analysis when voice command is parsed
+  useEffect(() => {
+    if (voice.status === 'done' && voice.result) {
+      if (voice.result.action === 'analyze_ticker' && voice.result.ticker) {
+        setTickerInput(voice.result.ticker)
+        setUserNotes(voice.result.notes || '')
+        setSelectedId(null)
+        setFile(null)
+        setPreview(null)
+        analyze.reset()
+        analyzeTicker.mutate({
+          ticker: voice.result.ticker,
+          userNotes: voice.result.notes || '',
+        })
+        setTimeout(() => voice.reset(), 2000)
+      } else if (voice.result.action === 'unknown') {
+        setTimeout(() => voice.reset(), 3000)
+      }
+    }
+  }, [voice.status, voice.result])
 
   // The latest result: either the mutation response or a loaded history item
   const currentAnalysis = selectedId ? selectedAnalysis : (analyzeTicker.data || analyze.data)
@@ -166,6 +189,31 @@ export default function ChartAnalysis() {
                   </div>
                 )}
               </div>
+              {/* Voice command button */}
+              {voice.isSupported && (
+                <button
+                  type="button"
+                  onClick={voice.status === 'listening' ? voice.stopListening : voice.startListening}
+                  disabled={isPending || voice.status === 'processing'}
+                  className={clsx(
+                    'flex items-center justify-center w-10 h-10 rounded-md border transition-all flex-shrink-0',
+                    voice.status === 'listening'
+                      ? 'bg-red-50 border-red-300 text-red-600 animate-pulse'
+                      : voice.status === 'processing'
+                      ? 'bg-gray-100 border-gray-300 text-gray-400 cursor-wait'
+                      : 'bg-gray-50 border-gray-300 text-gray-500 hover:bg-blue-50 hover:border-blue-300 hover:text-blue-600'
+                  )}
+                  title={voice.status === 'listening' ? 'Stop listening' : 'Voice command'}
+                >
+                  {voice.status === 'processing' ? (
+                    <Loader2 size={16} className="animate-spin" />
+                  ) : voice.status === 'listening' ? (
+                    <MicOff size={16} />
+                  ) : (
+                    <Mic size={16} />
+                  )}
+                </button>
+              )}
               <button
                 type="submit"
                 disabled={!tickerInput.trim() || isPending}
@@ -184,6 +232,47 @@ export default function ChartAnalysis() {
                 )}
               </button>
             </form>
+
+            {/* Voice command feedback */}
+            {(voice.status === 'listening' || voice.status === 'processing') && (
+              <div className={clsx(
+                'mt-2 rounded-lg px-3 py-2 text-sm flex items-center gap-2',
+                voice.status === 'listening' && 'bg-blue-50 border border-blue-200 text-blue-700',
+                voice.status === 'processing' && 'bg-indigo-50 border border-indigo-200 text-indigo-700',
+              )}>
+                {voice.status === 'listening' && (
+                  <>
+                    <div className="w-2 h-2 bg-red-500 rounded-full animate-pulse flex-shrink-0" />
+                    <span className="text-xs">{voice.transcript || 'Listening... say "Analyze Tesla for swing trades"'}</span>
+                  </>
+                )}
+                {voice.status === 'processing' && (
+                  <>
+                    <Loader2 size={14} className="animate-spin flex-shrink-0" />
+                    <span className="text-xs truncate">Parsing: &ldquo;{voice.transcript}&rdquo;</span>
+                  </>
+                )}
+              </div>
+            )}
+            {voice.status === 'done' && voice.result?.action === 'analyze_ticker' && (
+              <div className="mt-2 rounded-lg px-3 py-2 text-xs bg-green-50 border border-green-200 text-green-700 flex items-center gap-2">
+                <CheckCircle2 size={14} className="flex-shrink-0" />
+                <span>Analyzing {voice.result.ticker}{voice.result.notes ? ` \u2014 ${voice.result.notes}` : ''}</span>
+              </div>
+            )}
+            {voice.status === 'done' && voice.result?.action === 'unknown' && (
+              <div className="mt-2 rounded-lg px-3 py-2 text-xs bg-amber-50 border border-amber-200 text-amber-700 flex items-center gap-2">
+                <span>{voice.result.message || "Couldn't understand that. Try saying a ticker or company name."}</span>
+                <button type="button" onClick={voice.reset} className="ml-auto text-xs underline hover:no-underline flex-shrink-0">Dismiss</button>
+              </div>
+            )}
+            {voice.status === 'error' && (
+              <div className="mt-2 rounded-lg px-3 py-2 text-xs bg-red-50 border border-red-200 text-red-700 flex items-center gap-2">
+                <span>{voice.error}</span>
+                <button type="button" onClick={voice.reset} className="ml-auto text-xs underline hover:no-underline flex-shrink-0">Dismiss</button>
+              </div>
+            )}
+
             {analyzeTicker.isError && (
               <div className="mt-2 bg-red-50 border border-red-200 rounded p-2 text-xs text-red-700">
                 {analyzeTicker.error?.response?.data?.detail || 'Ticker analysis failed'}

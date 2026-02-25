@@ -150,3 +150,50 @@ def analyze_ticker_data(ticker: str, ohlcv_text: str, user_notes: str = "") -> s
         )
 
     return message.content[0].text
+
+
+def parse_voice_command(transcript: str) -> dict:
+    """Parse a voice command transcript into a structured intent using Claude."""
+    import json
+    import re
+    from app.claude.chart_prompts import VOICE_COMMAND_PROMPT
+
+    settings = get_settings()
+    client = anthropic.Anthropic(
+        api_key=settings.ANTHROPIC_API_KEY,
+        timeout=30.0,
+        max_retries=0,
+    )
+
+    logger.info("Parsing voice command: %s", transcript[:100])
+
+    try:
+        message = client.messages.create(
+            model=settings.CLAUDE_MODEL,
+            max_tokens=256,
+            system=VOICE_COMMAND_PROMPT,
+            messages=[{"role": "user", "content": transcript}],
+        )
+    except anthropic.APITimeoutError:
+        logger.error("Voice command parse timed out")
+        raise
+    except anthropic.APIStatusError as e:
+        logger.error("Voice command parse API error: %s", e.status_code)
+        raise
+
+    raw = message.content[0].text
+    logger.info("Voice parse response: %s", raw[:200])
+
+    try:
+        return json.loads(raw)
+    except json.JSONDecodeError:
+        match = re.search(r"\{.*\}", raw, re.DOTALL)
+        if match:
+            try:
+                return json.loads(match.group(0))
+            except json.JSONDecodeError:
+                pass
+        return {
+            "ticker": None, "notes": "", "action": "unknown",
+            "message": "Failed to parse voice command",
+        }
