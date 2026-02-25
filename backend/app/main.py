@@ -8,7 +8,7 @@ from fastapi.staticfiles import StaticFiles
 
 from app.config import get_settings
 from app.database import engine, Base
-from app.routers import portfolios, market_data, analysis, chart_analysis, dcf
+from app.routers import portfolios, market_data, analysis, chart_analysis, dcf, sec_filings
 
 
 @asynccontextmanager
@@ -41,6 +41,7 @@ app.include_router(market_data.router, prefix="/api/v1/market-data", tags=["Mark
 app.include_router(analysis.router, prefix="/api/v1/analysis", tags=["Analysis"])
 app.include_router(chart_analysis.router, prefix="/api/v1/chart-analysis", tags=["Chart Analysis"])
 app.include_router(dcf.router, prefix="/api/v1/dcf", tags=["DCF Valuation"])
+app.include_router(sec_filings.router, prefix="/api/v1/sec-filings", tags=["SEC Filings"])
 
 
 @app.get("/api/v1/health")

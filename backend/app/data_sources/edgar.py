@@ -6,7 +6,9 @@ Rate limit: 10 requests/second.
 """
 
 import logging
+import re
 import httpx
+from html.parser import HTMLParser
 
 from app.config import get_settings
 
@@ -15,9 +17,45 @@ logger = logging.getLogger(__name__)
 _BASE_SUBMISSIONS = "https://data.sec.gov/submissions"
 _BASE_XBRL = "https://data.sec.gov/api/xbrl"
 _TICKER_URL = "https://www.sec.gov/files/company_tickers.json"
+_EFTS_SEARCH = "https://efts.sec.gov/LATEST/search-index"
 
 # In-memory CIK lookup (populated on first call)
 _ticker_to_cik: dict[str, str] = {}
+
+
+class _HTMLTextExtractor(HTMLParser):
+    """Simple HTML-to-text converter for SEC filing documents."""
+
+    def __init__(self):
+        super().__init__()
+        self._pieces: list[str] = []
+        self._skip = False
+
+    def handle_starttag(self, tag, attrs):
+        if tag in ("script", "style", "head"):
+            self._skip = True
+        elif tag in ("p", "div", "br", "tr", "li", "h1", "h2", "h3", "h4", "h5", "h6"):
+            self._pieces.append("\n")
+        elif tag == "td":
+            self._pieces.append("\t")
+
+    def handle_endtag(self, tag):
+        if tag in ("script", "style", "head"):
+            self._skip = False
+        elif tag in ("p", "div", "tr", "table", "h1", "h2", "h3", "h4", "h5", "h6"):
+            self._pieces.append("\n")
+
+    def handle_data(self, data):
+        if not self._skip:
+            self._pieces.append(data)
+
+    def get_text(self) -> str:
+        raw = "".join(self._pieces)
+        # Collapse whitespace while preserving paragraph breaks
+        raw = re.sub(r"[ \t]+", " ", raw)
+        raw = re.sub(r"\n[ \t]+", "\n", raw)
+        raw = re.sub(r"\n{3,}", "\n\n", raw)
+        return raw.strip()
 
 
 def _headers() -> dict[str, str]:
@@ -237,3 +275,132 @@ def fetch_sec_data(tickers: list[str]) -> dict:
             results[ticker] = {"error": filings["error"]}
 
     return results
+
+
+def fetch_filing_content(accession: str, cik: str, primary_doc: str = "") -> dict:
+    """Fetch the text content of a specific SEC filing.
+
+    If primary_doc is not given, fetches the filing index to find it.
+    Returns parsed plain text suitable for display and AI search.
+    """
+    cik_clean = cik.lstrip("0") or "0"
+    accession_clean = accession.replace("-", "")
+
+    try:
+        # If no primary doc specified, get the filing index
+        if not primary_doc:
+            index_url = (
+                f"https://www.sec.gov/Archives/edgar/data/"
+                f"{cik_clean}/{accession_clean}/index.json"
+            )
+            resp = httpx.get(index_url, headers=_headers(), timeout=15, follow_redirects=True)
+            resp.raise_for_status()
+            index_data = resp.json()
+            items = index_data.get("directory", {}).get("item", [])
+            # Find the primary document (prefer .htm/.html)
+            for item in items:
+                name = item.get("name", "")
+                if name.endswith((".htm", ".html")) and not name.startswith("R"):
+                    primary_doc = name
+                    break
+            if not primary_doc and items:
+                primary_doc = items[0].get("name", "")
+
+        if not primary_doc:
+            return {"error": "Could not determine primary document"}
+
+        # Fetch the actual filing document
+        doc_url = (
+            f"https://www.sec.gov/Archives/edgar/data/"
+            f"{cik_clean}/{accession_clean}/{primary_doc}"
+        )
+        resp = httpx.get(doc_url, headers=_headers(), timeout=30, follow_redirects=True)
+        resp.raise_for_status()
+
+        content_type = resp.headers.get("content-type", "")
+        raw_html = resp.text
+
+        # Convert HTML to plain text
+        if "html" in content_type or raw_html.strip().startswith(("<", "<!DOCTYPE")):
+            parser = _HTMLTextExtractor()
+            parser.feed(raw_html)
+            text = parser.get_text()
+        else:
+            text = raw_html
+
+        # Truncate if extremely large (some 10-Ks can be 1MB+ text)
+        max_chars = 500_000
+        truncated = len(text) > max_chars
+        if truncated:
+            text = text[:max_chars]
+
+        return {
+            "accession": accession,
+            "document": primary_doc,
+            "url": doc_url,
+            "content": text,
+            "char_count": len(text),
+            "truncated": truncated,
+        }
+    except Exception as e:
+        logger.error("Failed to fetch filing content %s: %s", accession, e)
+        return {"accession": accession, "error": str(e)}
+
+
+def search_company_filings(
+    query: str,
+    ticker: str | None = None,
+    filing_types: list[str] | None = None,
+    date_from: str | None = None,
+    date_to: str | None = None,
+    limit: int = 20,
+) -> dict:
+    """Search EDGAR full-text search for filings matching a query.
+
+    Uses the EFTS (EDGAR Full-Text Search) endpoint.
+    """
+    try:
+        params: dict = {
+            "q": query,
+            "dateRange": "custom",
+            "startdt": date_from or "2020-01-01",
+            "enddt": date_to or "2026-12-31",
+        }
+
+        if ticker:
+            cik = _get_cik(ticker)
+            if cik:
+                params["dateRange"] = "custom"
+
+        if filing_types:
+            params["forms"] = ",".join(filing_types)
+
+        # Use the EDGAR full-text search API
+        search_url = "https://efts.sec.gov/LATEST/search-index"
+        resp = httpx.get(
+            search_url,
+            params=params,
+            headers=_headers(),
+            timeout=15,
+            follow_redirects=True,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+
+        hits = data.get("hits", {}).get("hits", [])
+        results = []
+        for hit in hits[:limit]:
+            source = hit.get("_source", {})
+            results.append({
+                "entity_name": source.get("entity_name", ""),
+                "file_num": source.get("file_num", ""),
+                "form_type": source.get("form_type", ""),
+                "file_date": source.get("file_date", ""),
+                "period_of_report": source.get("period_of_report", ""),
+                "file_description": source.get("file_description", ""),
+            })
+
+        return {"query": query, "total": data.get("hits", {}).get("total", {}).get("value", 0), "results": results}
+    except Exception as e:
+        logger.error("EDGAR search failed for '%s': %s", query, e)
+        return {"query": query, "error": str(e)}
