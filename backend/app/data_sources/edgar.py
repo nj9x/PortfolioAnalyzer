@@ -416,6 +416,28 @@ def fetch_filing_content(accession: str, cik: str, primary_doc: str = "") -> dic
         content_type = resp.headers.get("content-type", "")
         raw_html = resp.text
 
+        # Strip SGML envelope tags that SEC wraps around some documents
+        # e.g. <DOCUMENT>\n<TYPE>EX-99.1\n<SEQUENCE>2\n...\n<TEXT>\n<html>...
+        if raw_html.lstrip().upper().startswith("<DOCUMENT>"):
+            # Extract the content between <TEXT> and </TEXT> (the actual HTML)
+            text_match = re.search(
+                r"<TEXT>\s*([\s\S]*?)\s*</TEXT>",
+                raw_html,
+                flags=re.IGNORECASE,
+            )
+            if text_match:
+                raw_html = text_match.group(1).strip()
+            else:
+                # Fallback: strip known SGML header tags
+                raw_html = re.sub(
+                    r"^<DOCUMENT>\s*|<TYPE>[^\n]*\n|<SEQUENCE>[^\n]*\n"
+                    r"|<FILENAME>[^\n]*\n|<DESCRIPTION>[^\n]*\n|<TEXT>\s*"
+                    r"|</TEXT>\s*|</DOCUMENT>\s*$",
+                    "",
+                    raw_html,
+                    flags=re.IGNORECASE,
+                ).strip()
+
         # Convert HTML to plain text
         is_html = "html" in content_type or raw_html.strip().startswith(("<", "<!DOCTYPE"))
         if is_html:
