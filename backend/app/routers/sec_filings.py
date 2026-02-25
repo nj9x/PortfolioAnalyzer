@@ -27,7 +27,11 @@ def search_filings(
 ):
     """List recent SEC filings for a ticker."""
     types = [t.strip() for t in filing_types.split(",") if t.strip()]
-    data = edgar.fetch_recent_filings(ticker.strip().upper(), filing_types=types, limit=limit)
+    try:
+        data = edgar.fetch_recent_filings(ticker.strip().upper(), filing_types=types, limit=limit)
+    except Exception as e:
+        logger.error("Unexpected error searching filings for %s: %s", ticker, e)
+        raise HTTPException(status_code=502, detail=f"Failed to fetch filings from SEC: {e}")
     if data.get("error"):
         raise HTTPException(status_code=404, detail=data["error"])
     return data

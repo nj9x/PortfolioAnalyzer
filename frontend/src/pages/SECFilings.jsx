@@ -40,11 +40,13 @@ export default function SECFilings() {
     data: filingsData,
     isLoading: filingsLoading,
     isError: filingsError,
+    error: filingsErrorObj,
   } = useQuery({
     queryKey: ['sec-filings-list', submittedTicker, filingTypes],
     queryFn: () => searchFilings(submittedTicker, filingTypes),
     enabled: !!submittedTicker,
     staleTime: 60 * 60 * 1000,
+    retry: 1,
   })
 
   // Fetch filing content when a filing is selected
@@ -201,7 +203,9 @@ export default function SECFilings() {
                   <Loader2 size={16} className="animate-spin" /> Loading filings...
                 </div>
               ) : filingsError ? (
-                <div className="p-4 text-sm text-red-600">Failed to load filings. Check the ticker.</div>
+                <div className="p-4 text-sm text-red-600">
+                  {filingsErrorObj?.response?.data?.detail || 'Failed to load filings. Check the ticker and try again.'}
+                </div>
               ) : filings.length === 0 ? (
                 <div className="p-4 text-sm text-gray-500">No filings found.</div>
               ) : (

@@ -7,6 +7,7 @@ Rate limit: 10 requests/second.
 
 import logging
 import re
+import time
 import httpx
 from html.parser import HTMLParser
 
@@ -21,6 +22,7 @@ _EFTS_SEARCH = "https://efts.sec.gov/LATEST/search-index"
 
 # In-memory CIK lookup (populated on first call)
 _ticker_to_cik: dict[str, str] = {}
+_cik_load_attempted: bool = False
 
 
 class _HTMLTextExtractor(HTMLParser):
@@ -67,27 +69,53 @@ def _headers() -> dict[str, str]:
 
 
 def _ensure_cik_map() -> None:
-    """Load the SEC ticker-to-CIK mapping if not already cached."""
-    global _ticker_to_cik
+    """Load the SEC ticker-to-CIK mapping if not already cached.
+
+    Retries up to 3 times with backoff if the initial load fails.
+    """
+    global _ticker_to_cik, _cik_load_attempted
     if _ticker_to_cik:
         return
-    try:
-        resp = httpx.get(_TICKER_URL, headers=_headers(), timeout=15)
-        resp.raise_for_status()
-        data = resp.json()
-        for entry in data.values():
-            ticker = entry.get("ticker", "").upper()
-            cik = str(entry.get("cik_str", ""))
-            if ticker and cik:
-                _ticker_to_cik[ticker] = cik.zfill(10)
-    except Exception as e:
-        logger.error("Failed to load SEC CIK map: %s", e)
+    if _cik_load_attempted:
+        # Already tried and failed recently — don't hammer SEC on every request
+        return
+
+    _cik_load_attempted = True
+    last_err = None
+    for attempt in range(3):
+        try:
+            resp = httpx.get(_TICKER_URL, headers=_headers(), timeout=20)
+            resp.raise_for_status()
+            data = resp.json()
+            for entry in data.values():
+                ticker = entry.get("ticker", "").upper()
+                cik = str(entry.get("cik_str", ""))
+                if ticker and cik:
+                    _ticker_to_cik[ticker] = cik.zfill(10)
+            logger.info("Loaded SEC CIK map: %d tickers", len(_ticker_to_cik))
+            return
+        except Exception as e:
+            last_err = e
+            logger.warning(
+                "CIK map load attempt %d/3 failed: %s", attempt + 1, e
+            )
+            if attempt < 2:
+                time.sleep(1 * (attempt + 1))
+
+    logger.error("Failed to load SEC CIK map after 3 attempts: %s", last_err)
 
 
 def _get_cik(ticker: str) -> str | None:
     """Resolve ticker symbol to zero-padded 10-digit CIK."""
     _ensure_cik_map()
-    return _ticker_to_cik.get(ticker.upper())
+    cik = _ticker_to_cik.get(ticker.upper())
+    if not cik:
+        # Reset the attempt flag so next request retries the CIK map load
+        # (in case the initial failure was transient)
+        global _cik_load_attempted
+        if not _ticker_to_cik:
+            _cik_load_attempted = False
+    return cik
 
 
 def fetch_recent_filings(

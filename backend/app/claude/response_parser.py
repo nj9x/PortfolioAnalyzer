@@ -97,12 +97,42 @@ def parse_analysis_response(raw_response: str) -> dict:
         logger.warning("JSON was truncated — repaired by closing brackets")
         return repaired
 
-    # Fallback: return raw response in a structured format
+    # Fallback: try to extract individual fields from the raw response via regex
+    # rather than storing raw JSON as the summary
     logger.error("Failed to parse analysis response as JSON (length=%d)", len(raw_response))
+
+    cleaned_raw = _strip_markdown_fences(raw_response)
+
+    # Try to extract the summary field from raw/truncated JSON
+    summary_match = re.search(
+        r'"summary"\s*:\s*"((?:[^"\\]|\\[\s\S])*)"', cleaned_raw
+    )
+    if summary_match:
+        extracted_summary = (
+            summary_match.group(1)
+            .replace('\\"', '"')
+            .replace("\\n", "\n")
+            .replace("\\t", "\t")
+            .replace("\\\\", "\\")
+        )
+    else:
+        # Nothing parseable — use a clean fallback, never raw JSON
+        extracted_summary = "Analysis completed. Re-run for a detailed summary."
+
+    # Try to extract risk_score
+    risk_match = re.search(r'"risk_score"\s*:\s*(\d+)', cleaned_raw)
+    risk_score = int(risk_match.group(1)) if risk_match else None
+
+    # Try to extract market_outlook
+    outlook_match = re.search(
+        r'"market_outlook"\s*:\s*"(bullish|bearish|neutral)"', cleaned_raw
+    )
+    market_outlook = outlook_match.group(1) if outlook_match else "neutral"
+
     return {
-        "summary": raw_response[:500] if len(raw_response) > 500 else raw_response,
-        "risk_score": None,
-        "market_outlook": "neutral",
+        "summary": extracted_summary,
+        "risk_score": risk_score,
+        "market_outlook": market_outlook,
         "recommendations": [],
         "general_advice": [],
         "_parse_error": True,

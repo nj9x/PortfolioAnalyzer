@@ -34,15 +34,26 @@ function extractSummary(summary) {
   if (!summary) return ''
   const trimmed = summary.trim()
 
-  // Check if it looks like JSON or markdown-fenced JSON
-  const looksLikeJson = trimmed.startsWith('{') || trimmed.startsWith('```')
-  if (!looksLikeJson) return summary
+  // Quick check: does this contain any JSON-like content?
+  const containsJson = trimmed.includes('{') || trimmed.includes('```')
+  // If it's clean text (no braces, no fences), return as-is
+  if (!containsJson) return summary
 
-  // Strip markdown fences
-  const cleaned = trimmed
-    .replace(/^```(?:json|JSON)?\s*\n?/, '')
-    .replace(/\n?\s*```\s*$/, '')
+  // Strip markdown fences and any text before the JSON
+  let cleaned = trimmed
+    .replace(/^[\s\S]*?```(?:json|JSON)?\s*\n?/, '')  // strip everything up to and including opening fence
+    .replace(/\n?\s*```[\s\S]*$/, '')                   // strip closing fence and anything after
     .trim()
+
+  // If fences were stripped and result starts with {, use it; otherwise try finding { in original
+  if (!cleaned.startsWith('{')) {
+    const braceIdx = trimmed.indexOf('{')
+    if (braceIdx !== -1) {
+      cleaned = trimmed.substring(braceIdx)
+    } else {
+      return summary // no JSON found, return as-is
+    }
+  }
 
   // Strategy 1: Try full JSON parse
   try {
@@ -55,7 +66,7 @@ function extractSummary(summary) {
   }
 
   // Strategy 2: Regex extract "summary": "..." from raw/truncated JSON
-  // This handles the common case where JSON was cut off mid-stream
+  // Works even on truncated JSON as long as the summary value is complete
   const match = cleaned.match(/"summary"\s*:\s*"((?:[^"\\]|\\[\s\S])*)"/)
   if (match) {
     return match[1]
@@ -65,7 +76,19 @@ function extractSummary(summary) {
       .replace(/\\\\/g, '\\')
   }
 
-  // Strategy 3: Nothing worked — don't show raw JSON, show a fallback message
+  // Strategy 3: Handle truncated summary value (no closing quote)
+  // e.g. {"summary": "This portfolio is well diversi
+  const partialMatch = cleaned.match(/"summary"\s*:\s*"((?:[^"\\]|\\[\s\S])*)$/)
+  if (partialMatch && partialMatch[1].length > 10) {
+    return partialMatch[1]
+      .replace(/\\"/g, '"')
+      .replace(/\\n/g, '\n')
+      .replace(/\\t/g, '\t')
+      .replace(/\\\\/g, '\\')
+      + '...'
+  }
+
+  // Strategy 4: Nothing worked — don't show raw JSON, show a fallback message
   return 'Analysis completed. Re-run the analysis for a detailed summary.'
 }
 
