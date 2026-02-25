@@ -45,3 +45,9 @@ export const getTickerHistory = (ticker, period = '1y') =>
 
 export const getTickerRisk = (ticker) =>
   api.get('/market-data/ticker-risk', { params: { ticker } }).then(r => r.data)
+
+export const getSecFilings = (portfolioId) =>
+  api.get('/market-data/sec-filings', { params: { portfolio_id: portfolioId } }).then(r => r.data)
+
+export const getTickerSecFilings = (ticker) =>
+  api.get('/market-data/sec-filings', { params: { tickers: ticker } }).then(r => r.data)

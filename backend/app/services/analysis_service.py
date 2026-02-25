@@ -58,7 +58,7 @@ async def run_analysis(db: Session, portfolio_id: int) -> AnalysisReport:
         context = {
             "quotes": {}, "news": [], "predictions": [],
             "economic": {}, "technicals": {}, "fundamentals": {},
-            "options": {}, "risk": {},
+            "options": {}, "risk": {}, "sec_filings": {},
         }
 
     t1 = time.time()
@@ -76,6 +76,7 @@ async def run_analysis(db: Session, portfolio_id: int) -> AnalysisReport:
         fundamentals_data=context.get("fundamentals"),
         risk_data=context.get("risk"),
         options=context.get("options"),
+        sec_filings=context.get("sec_filings"),
     )
     logger.info("Prompt built: %d chars. Calling Claude...", len(user_message))
 

@@ -10,7 +10,7 @@ import RecommendationCard from '../components/analysis/RecommendationCard'
 import LoadingSpinner from '../components/common/LoadingSpinner'
 import ErrorBanner from '../components/common/ErrorBanner'
 import EmptyState from '../components/common/EmptyState'
-import { Briefcase } from 'lucide-react'
+import { Briefcase, FileText, BarChart3, Calculator } from 'lucide-react'
 import { Link } from 'react-router-dom'
 
 export default function Dashboard() {
@@ -96,6 +96,49 @@ export default function Dashboard() {
           </div>
         </div>
       )}
+
+      {/* Quick Tools */}
+      <div>
+        <h3 className="font-medium text-gray-900 mb-3">Tools</h3>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+          <Link
+            to="/sec-filings"
+            className="flex items-center gap-3 bg-white rounded-lg border border-gray-200 p-4 hover:border-blue-300 hover:bg-blue-50/30 transition-colors group"
+          >
+            <div className="p-2 rounded-lg bg-blue-50 text-blue-600 group-hover:bg-blue-100">
+              <FileText size={20} />
+            </div>
+            <div>
+              <p className="text-sm font-medium text-gray-900">SEC Filings</p>
+              <p className="text-xs text-gray-500">Browse EDGAR filings with AI search</p>
+            </div>
+          </Link>
+          <Link
+            to="/chart-analysis"
+            className="flex items-center gap-3 bg-white rounded-lg border border-gray-200 p-4 hover:border-blue-300 hover:bg-blue-50/30 transition-colors group"
+          >
+            <div className="p-2 rounded-lg bg-purple-50 text-purple-600 group-hover:bg-purple-100">
+              <BarChart3 size={20} />
+            </div>
+            <div>
+              <p className="text-sm font-medium text-gray-900">Chart Analysis</p>
+              <p className="text-xs text-gray-500">AI-powered technical analysis</p>
+            </div>
+          </Link>
+          <Link
+            to="/dcf"
+            className="flex items-center gap-3 bg-white rounded-lg border border-gray-200 p-4 hover:border-blue-300 hover:bg-blue-50/30 transition-colors group"
+          >
+            <div className="p-2 rounded-lg bg-green-50 text-green-600 group-hover:bg-green-100">
+              <Calculator size={20} />
+            </div>
+            <div>
+              <p className="text-sm font-medium text-gray-900">DCF Valuation</p>
+              <p className="text-xs text-gray-500">Discounted cash flow calculator</p>
+            </div>
+          </Link>
+        </div>
+      </div>
 
       {/* News */}
       {articles.length > 0 && (

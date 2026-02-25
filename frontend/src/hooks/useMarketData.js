@@ -124,3 +124,21 @@ export function useTickerRisk(ticker) {
     staleTime: 5 * 60 * 1000,
   })
 }
+
+export function useSecFilings(portfolioId) {
+  return useQuery({
+    queryKey: ['sec-filings', portfolioId],
+    queryFn: () => marketApi.getSecFilings(portfolioId),
+    enabled: !!portfolioId,
+    staleTime: 60 * 60 * 1000,
+  })
+}
+
+export function useTickerSecFilings(ticker) {
+  return useQuery({
+    queryKey: ['ticker-sec-filings', ticker],
+    queryFn: () => marketApi.getTickerSecFilings(ticker),
+    enabled: !!ticker,
+    staleTime: 60 * 60 * 1000,
+  })
+}

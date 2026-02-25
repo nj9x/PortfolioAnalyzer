@@ -1,5 +1,5 @@
 import { NavLink } from 'react-router-dom'
-import { LayoutDashboard, Briefcase, Radio, BrainCircuit, ImagePlus, Calculator } from 'lucide-react'
+import { LayoutDashboard, Briefcase, Radio, BrainCircuit, ImagePlus, Calculator, FileText } from 'lucide-react'
 import clsx from 'clsx'
 
 const links = [
@@ -9,16 +9,17 @@ const links = [
   { to: '/analysis', label: 'AI Analysis', icon: BrainCircuit },
   { to: '/chart-analysis', label: 'Chart Analysis', icon: ImagePlus },
   { to: '/dcf', label: 'DCF Valuation', icon: Calculator },
+  { to: '/sec-filings', label: 'SEC Filings', icon: FileText },
 ]
 
 export default function Sidebar() {
   return (
-    <aside className="w-64 bg-gray-900 text-gray-100 flex flex-col min-h-screen">
-      <div className="px-6 py-5 border-b border-gray-700">
+    <aside className="w-64 bg-gray-900 text-gray-100 flex flex-col h-screen sticky top-0">
+      <div className="px-6 py-5 border-b border-gray-700 flex-shrink-0">
         <h1 className="text-xl font-bold tracking-tight">Portfolio Analyzer</h1>
         <p className="text-xs text-gray-400 mt-1">AI-Powered Advisory Tool</p>
       </div>
-      <nav className="flex-1 px-3 py-4 space-y-1">
+      <nav className="flex-1 px-3 py-4 space-y-1 overflow-y-auto">
         {links.map(({ to, label, icon: Icon }) => (
           <NavLink
             key={to}

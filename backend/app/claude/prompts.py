@@ -55,6 +55,7 @@ def build_user_message(
     fundamentals_data: dict | None = None,
     risk_data: dict | None = None,
     options: dict | None = None,
+    sec_filings: dict | None = None,
 ) -> str:
     """Assemble all market context into a structured prompt for Claude."""
     sections = [f"# Portfolio Analysis Request: {portfolio_name}\n"]
@@ -271,7 +272,49 @@ def build_user_message(
                 f"theta={put.get('theta', 'N/A')}, vega={put.get('vega', 'N/A')}"
             )
 
-    # Section 7: News
+    # Section 7: SEC Filings & Financial Facts
+    if sec_filings:
+        sections.append("\n## SEC EDGAR FILINGS & FINANCIAL FACTS")
+        for ticker, data in sec_filings.items():
+            if data.get("error"):
+                sections.append(f"- {ticker}: {data['error']}")
+                continue
+
+            sections.append(f"\n### {ticker} — {data.get('company_name', 'N/A')}")
+            sections.append(f"  Industry: {data.get('sic_description', 'N/A')}")
+
+            # Recent filings
+            filings = data.get("recent_filings", [])
+            if filings:
+                sections.append("  Recent Filings:")
+                for f in filings[:5]:
+                    sections.append(
+                        f"    - {f['form']} filed {f['filing_date']}: {f.get('description', '')}"
+                    )
+
+            # Key financial facts from XBRL
+            financials = data.get("financials", {})
+            if financials:
+                sections.append("  Key Financials (from XBRL):")
+                for metric, values in financials.items():
+                    label = metric.replace("_", " ").title()
+                    annual = values.get("annual", {})
+                    if annual:
+                        val = annual.get("value", "N/A")
+                        period = annual.get("period_end", "")
+                        yoy = annual.get("yoy_growth_pct")
+                        yoy_str = f", YoY: {yoy:+.1f}%" if yoy is not None else ""
+                        if isinstance(val, (int, float)) and abs(val) >= 1_000_000:
+                            val_str = f"${val / 1_000_000:,.1f}M"
+                        elif isinstance(val, (int, float)):
+                            val_str = f"{val:,.2f}"
+                        else:
+                            val_str = str(val)
+                        sections.append(
+                            f"    {label}: {val_str} (period ending {period}{yoy_str})"
+                        )
+
+    # Section 8: News
     if news:
         sections.append("\n## RECENT FINANCIAL NEWS")
         for article in news[:10]:

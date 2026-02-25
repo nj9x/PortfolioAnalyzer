@@ -1,9 +1,9 @@
 import { useParams, useNavigate } from 'react-router-dom'
 import { useState, useMemo } from 'react'
-import { ArrowLeft, CheckCircle, AlertTriangle, HelpCircle, Activity, BarChart3, Target, Shield } from 'lucide-react'
+import { ArrowLeft, CheckCircle, AlertTriangle, HelpCircle, Activity, BarChart3, Target, Shield, FileText, ExternalLink } from 'lucide-react'
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts'
 import clsx from 'clsx'
-import { useTickerQuote, useTickerFundamentals, useTickerTechnicals, useTickerHistory, useTickerRisk } from '../hooks/useMarketData'
+import { useTickerQuote, useTickerFundamentals, useTickerTechnicals, useTickerHistory, useTickerRisk, useTickerSecFilings } from '../hooks/useMarketData'
 import LoadingSpinner from '../components/common/LoadingSpinner'
 
 // ─── Helpers ────────────────────────────────────────────────────────
@@ -195,6 +195,7 @@ export default function StockDetail() {
   const { data: techData } = useTickerTechnicals(ticker)
   const { data: historyData, isLoading: histLoading } = useTickerHistory(ticker, period)
   const { data: riskData, isLoading: riskLoading } = useTickerRisk(ticker)
+  const { data: secData } = useTickerSecFilings(ticker)
 
   const quote = quoteData?.quotes?.[ticker] || {}
   const fundamentals = fundData?.fundamentals?.[ticker] || {}
@@ -202,6 +203,7 @@ export default function StockDetail() {
   const bars = historyData?.bars || []
   const risk = riskData?.risk || {}
   const monteCarlo = risk.monte_carlo || {}
+  const secFilings = secData?.sec_filings?.[ticker] || {}
 
   const monteCarloChartData = useMemo(() => {
     if (!monteCarlo.dates || !monteCarlo.bands) return []
@@ -390,6 +392,94 @@ export default function StockDetail() {
           </div>
         </div>
       </div>
+
+      {/* SEC EDGAR Filings */}
+      {secFilings.recent_filings?.length > 0 && (
+        <div className="bg-white rounded-xl border border-gray-200 p-5 space-y-4">
+          <div className="flex items-center gap-2">
+            <FileText size={18} className="text-gray-500" />
+            <h2 className="font-semibold text-gray-900">SEC Filings</h2>
+            {secFilings.sic_description && (
+              <span className="text-xs text-gray-400 ml-auto">{secFilings.sic_description}</span>
+            )}
+          </div>
+
+          {/* Key Financials from XBRL */}
+          {secFilings.financials && Object.keys(secFilings.financials).length > 0 && (
+            <div>
+              <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">
+                Key Financials (SEC XBRL)
+              </h3>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 divide-y md:divide-y-0 divide-gray-100">
+                {Object.entries(secFilings.financials).map(([key, data]) => {
+                  const annual = data.annual
+                  if (!annual) return null
+                  const label = key.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())
+                  const val = annual.value
+                  let formatted
+                  if (typeof val === 'number' && Math.abs(val) >= 1e9) {
+                    formatted = `$${(val / 1e9).toFixed(2)}B`
+                  } else if (typeof val === 'number' && Math.abs(val) >= 1e6) {
+                    formatted = `$${(val / 1e6).toFixed(1)}M`
+                  } else if (typeof val === 'number') {
+                    formatted = val.toLocaleString(undefined, { maximumFractionDigits: 2 })
+                  } else {
+                    formatted = String(val)
+                  }
+                  const yoy = annual.yoy_growth_pct
+                  return (
+                    <div key={key} className="flex justify-between py-1.5">
+                      <span className="text-sm text-gray-500">{label}</span>
+                      <span className="text-sm font-mono font-medium text-gray-900">
+                        {formatted}
+                        {yoy != null && (
+                          <span className={clsx('ml-2 text-xs', yoy >= 0 ? 'text-green-600' : 'text-red-600')}>
+                            {yoy >= 0 ? '+' : ''}{yoy.toFixed(1)}%
+                          </span>
+                        )}
+                      </span>
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          )}
+
+          {/* Recent Filings List */}
+          <div>
+            <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Recent Filings</h3>
+            <div className="space-y-2">
+              {secFilings.recent_filings.map((filing, i) => (
+                <a
+                  key={i}
+                  href={filing.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center justify-between p-2.5 rounded-lg border border-gray-100 hover:border-blue-200 hover:bg-blue-50/30 transition-colors group"
+                >
+                  <div className="flex items-center gap-3">
+                    <span className={clsx(
+                      'text-xs font-bold px-2 py-0.5 rounded',
+                      filing.form === '10-K' ? 'bg-blue-100 text-blue-800' :
+                      filing.form === '10-Q' ? 'bg-purple-100 text-purple-800' :
+                      'bg-gray-100 text-gray-700'
+                    )}>
+                      {filing.form}
+                    </span>
+                    <div>
+                      <p className="text-sm text-gray-700 group-hover:text-blue-700">
+                        {filing.description || `${filing.form} Filing`}
+                      </p>
+                      <p className="text-xs text-gray-400">{filing.filing_date}</p>
+                    </div>
+                  </div>
+                  <ExternalLink size={14} className="text-gray-300 group-hover:text-blue-500" />
+                </a>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Risk Assessment */}
       {riskLoading ? (

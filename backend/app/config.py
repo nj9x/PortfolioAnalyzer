@@ -18,6 +18,9 @@ class Settings(BaseSettings):
     FRED_API_KEY: str = ""
     MASSIVE_API_KEY: str = ""
 
+    # SEC EDGAR settings (no API key needed — just a User-Agent)
+    SEC_EDGAR_USER_AGENT: str = "PortfolioAnalyzer admin@portfolioanalyzer.local"
+
     # Deployment settings
     PORT: int = 8000
     CORS_ORIGINS: str = "http://localhost:5173,http://localhost:3000"
@@ -39,6 +42,7 @@ class Settings(BaseSettings):
     FUNDAMENTALS_CACHE_TTL: int = 3600
     OPTIONS_CACHE_TTL: int = 300
     RISK_CACHE_TTL: int = 300
+    SEC_FILINGS_CACHE_TTL: int = 3600
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
