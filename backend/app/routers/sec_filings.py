@@ -65,6 +65,13 @@ class AiSearchRequest(BaseModel):
     doc: str = ""
 
 
+class AiAnalyzeRequest(BaseModel):
+    accession: str
+    cik: str
+    doc: str = ""
+    filing_type: str = ""
+
+
 @router.post("/ai-search")
 def ai_search_filing(req: AiSearchRequest):
     """Use AI to search within a filing document and return relevant excerpts."""
@@ -154,3 +161,103 @@ def ai_search_filing(req: AiSearchRequest):
     except Exception as e:
         logger.error("AI search failed for %s: %s", req.accession, e)
         raise HTTPException(status_code=500, detail=f"AI search failed: {e}")
+
+
+@router.post("/ai-analyze")
+def ai_analyze_filing(req: AiAnalyzeRequest):
+    """Generate a comprehensive AI analysis of an SEC filing."""
+    settings = get_settings()
+    if not settings.ANTHROPIC_API_KEY:
+        raise HTTPException(status_code=503, detail="ANTHROPIC_API_KEY not configured")
+
+    # Get filing content (from cache or fresh)
+    cache_key = f"filing_content:{req.accession}"
+    cached = cache.get(cache_key)
+    if cached and cached.get("content"):
+        content = cached["content"]
+    else:
+        result = edgar.fetch_filing_content(req.accession, req.cik, primary_doc=req.doc)
+        if result.get("error"):
+            raise HTTPException(status_code=502, detail=result["error"])
+        content = result["content"]
+        cache.set(cache_key, result, settings.SEC_FILINGS_CACHE_TTL)
+
+    # Truncate for AI context window
+    max_context = 100_000
+    content_for_ai = content[:max_context]
+
+    try:
+        import anthropic
+        import json
+
+        client = anthropic.Anthropic(
+            api_key=settings.ANTHROPIC_API_KEY,
+            timeout=120.0,
+            max_retries=0,
+        )
+
+        filing_hint = f"This is a {req.filing_type} filing." if req.filing_type else ""
+
+        system_prompt = (
+            "You are a senior financial analyst reviewing an SEC filing. "
+            f"{filing_hint} "
+            "Provide a comprehensive analysis. Respond with ONLY valid JSON:\n"
+            "{\n"
+            '  "executive_summary": "3-5 sentence overview of the filing\'s most important points",\n'
+            '  "key_financials": [\n'
+            '    {"metric": "Revenue", "value": "$X.XB", "change": "+X% YoY", "assessment": "brief note"}\n'
+            "  ],\n"
+            '  "notable_items": [\n'
+            '    {"category": "Risk Factor|Business Update|Legal|Accounting Change|etc", '
+            '"title": "brief title", "detail": "1-2 sentence explanation", "severity": "high|medium|low"}\n'
+            "  ],\n"
+            '  "risk_assessment": {\n'
+            '    "overall_risk": "high|medium|low",\n'
+            '    "key_risks": ["risk 1", "risk 2"],\n'
+            '    "risk_changes": "What has changed from prior periods"\n'
+            "  },\n"
+            '  "management_outlook": "Summary of management\'s forward-looking statements and guidance",\n'
+            '  "red_flags": ["Any concerning items that investors should watch"],\n'
+            '  "positive_signals": ["Any encouraging items for investors"]\n'
+            "}"
+        )
+
+        message = client.messages.create(
+            model=settings.CLAUDE_MODEL,
+            max_tokens=4096,
+            system=system_prompt,
+            messages=[
+                {
+                    "role": "user",
+                    "content": (
+                        f"Analyze this SEC filing comprehensively:\n\n"
+                        f"--- FILING DOCUMENT CONTENT ---\n{content_for_ai}"
+                    ),
+                }
+            ],
+        )
+
+        raw = message.content[0].text
+
+        try:
+            parsed = json.loads(raw)
+        except json.JSONDecodeError:
+            import re
+
+            match = re.search(r"```(?:json)?\s*([\s\S]*?)```", raw)
+            if match:
+                try:
+                    parsed = json.loads(match.group(1))
+                except json.JSONDecodeError:
+                    parsed = {"executive_summary": raw, "key_financials": [], "notable_items": []}
+            else:
+                parsed = {"executive_summary": raw, "key_financials": [], "notable_items": []}
+
+        return {
+            "accession": req.accession,
+            "filing_type": req.filing_type,
+            "result": parsed,
+        }
+    except Exception as e:
+        logger.error("AI analysis failed for %s: %s", req.accession, e)
+        raise HTTPException(status_code=500, detail=f"AI analysis failed: {e}")

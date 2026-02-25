@@ -368,12 +368,37 @@ def fetch_filing_content(accession: str, cik: str, primary_doc: str = "") -> dic
             resp.raise_for_status()
             index_data = resp.json()
             items = index_data.get("directory", {}).get("item", [])
-            # Find the primary document (prefer .htm/.html)
+            # Find the primary filing document.
+            # Skip index/header wrappers (contain accession number) and
+            # R*.htm XBRL viewer pages.  Prefer the largest .htm file —
+            # that is almost always the actual filing (e.g. nflx-20251231.htm).
+            best_name = ""
+            best_size = -1
             for item in items:
                 name = item.get("name", "")
-                if name.endswith((".htm", ".html")) and not name.startswith("R"):
-                    primary_doc = name
-                    break
+                if not name.endswith((".htm", ".html")):
+                    continue
+                if name.startswith("R"):
+                    continue
+                # Skip SEC-generated index / header wrappers
+                if accession_clean in name.replace("-", ""):
+                    continue
+                try:
+                    size = int(item.get("size", 0) or 0)
+                except (ValueError, TypeError):
+                    size = 0
+                if size > best_size:
+                    best_size = size
+                    best_name = name
+            if best_name:
+                primary_doc = best_name
+            elif not primary_doc and items:
+                # Fallback: first .htm that isn't R* or index
+                for item in items:
+                    name = item.get("name", "")
+                    if name.endswith((".htm", ".html")) and not name.startswith("R"):
+                        primary_doc = name
+                        break
             if not primary_doc and items:
                 primary_doc = items[0].get("name", "")
 
@@ -392,14 +417,41 @@ def fetch_filing_content(accession: str, cik: str, primary_doc: str = "") -> dic
         raw_html = resp.text
 
         # Convert HTML to plain text
-        if "html" in content_type or raw_html.strip().startswith(("<", "<!DOCTYPE")):
+        is_html = "html" in content_type or raw_html.strip().startswith(("<", "<!DOCTYPE"))
+        if is_html:
             parser = _HTMLTextExtractor()
             parser.feed(raw_html)
             text = parser.get_text()
+
+            # Sanitise raw HTML for iframe display: strip <script> tags
+            safe_html = re.sub(
+                r"<script[^>]*>[\s\S]*?</script>", "", raw_html, flags=re.IGNORECASE
+            )
+            # Inject <base> so relative URLs (images, CSS) resolve to SEC.gov
+            base_url = (
+                f"https://www.sec.gov/Archives/edgar/data/"
+                f"{cik_clean}/{accession_clean}/"
+            )
+            if "<head" in safe_html.lower():
+                safe_html = re.sub(
+                    r"(<head[^>]*>)",
+                    f'\\1<base href="{base_url}">',
+                    safe_html,
+                    count=1,
+                    flags=re.IGNORECASE,
+                )
+            else:
+                safe_html = f'<base href="{base_url}">' + safe_html
+
+            # Cap HTML at 2 MB to avoid huge payloads
+            max_html = 2_000_000
+            if len(safe_html) > max_html:
+                safe_html = safe_html[:max_html]
         else:
             text = raw_html
+            safe_html = None  # not an HTML document
 
-        # Truncate if extremely large (some 10-Ks can be 1MB+ text)
+        # Truncate plain text if extremely large (some 10-Ks can be 1MB+)
         max_chars = 500_000
         truncated = len(text) > max_chars
         if truncated:
@@ -410,6 +462,7 @@ def fetch_filing_content(accession: str, cik: str, primary_doc: str = "") -> dic
             "document": primary_doc,
             "url": doc_url,
             "content": text,
+            "html_content": safe_html,
             "char_count": len(text),
             "truncated": truncated,
         }

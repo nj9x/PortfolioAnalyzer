@@ -8,3 +8,6 @@ export const getFilingContent = (accession, cik, doc = '') =>
 
 export const aiSearchFiling = (accession, cik, query, doc = '') =>
   api.post('/sec-filings/ai-search', { accession, cik, query, doc }).then(r => r.data)
+
+export const aiAnalyzeFiling = (accession, cik, doc = '', filingType = '') =>
+  api.post('/sec-filings/ai-analyze', { accession, cik, doc, filing_type: filingType }).then(r => r.data)

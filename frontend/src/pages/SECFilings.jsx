@@ -1,10 +1,12 @@
-import { useState, useRef, useEffect, useCallback } from 'react'
+import { useState, useRef, useEffect, useCallback, useMemo } from 'react'
 import { useQuery, useMutation } from '@tanstack/react-query'
-import { searchFilings, getFilingContent, aiSearchFiling } from '../api/secFilings'
+import { searchFilings, getFilingContent, aiSearchFiling, aiAnalyzeFiling } from '../api/secFilings'
 import EmptyState from '../components/common/EmptyState'
+import DOMPurify from 'dompurify'
 import {
   FileText, Search, Loader2, ExternalLink, Sparkles, ChevronRight,
-  X, ArrowUp, Filter
+  X, ArrowUp, Filter, Eye, Code, BrainCircuit, AlertTriangle,
+  TrendingUp, Shield, CheckCircle2
 } from 'lucide-react'
 import clsx from 'clsx'
 
@@ -32,7 +34,11 @@ export default function SECFilings() {
   const [aiQuery, setAiQuery] = useState('')
   const [aiResults, setAiResults] = useState(null)
   const [showAiPanel, setShowAiPanel] = useState(false)
+  const [viewMode, setViewMode] = useState('document') // 'document' | 'text'
+  const [aiAnalysis, setAiAnalysis] = useState(null)
+  const [showAnalysisPanel, setShowAnalysisPanel] = useState(false)
   const contentRef = useRef(null)
+  const iframeRef = useRef(null)
   const searchInputRef = useRef(null)
 
   // Fetch filings list
@@ -73,6 +79,16 @@ export default function SECFilings() {
     },
   })
 
+  // AI comprehensive analysis mutation
+  const aiAnalyze = useMutation({
+    mutationFn: ({ accession, cik, filingType }) =>
+      aiAnalyzeFiling(accession, cik, '', filingType),
+    onSuccess: (data) => {
+      setAiAnalysis(data.result)
+      setShowAnalysisPanel(true)
+    },
+  })
+
   const handleSearch = (e) => {
     e.preventDefault()
     if (!ticker.trim()) return
@@ -80,13 +96,17 @@ export default function SECFilings() {
     setSelectedFiling(null)
     setAiResults(null)
     setShowAiPanel(false)
+    setAiAnalysis(null)
+    setShowAnalysisPanel(false)
   }
 
   const handleFilingClick = (filing) => {
     setSelectedFiling(filing)
     setAiResults(null)
     setShowAiPanel(false)
-    // Scroll content to top
+    setAiAnalysis(null)
+    setShowAnalysisPanel(false)
+    setViewMode('document')
     if (contentRef.current) contentRef.current.scrollTop = 0
   }
 
@@ -97,6 +117,15 @@ export default function SECFilings() {
       accession: selectedFiling.accession,
       cik: filingsData?.cik || '',
       query: aiQuery.trim(),
+    })
+  }
+
+  const handleAiAnalyze = () => {
+    if (!selectedFiling) return
+    aiAnalyze.mutate({
+      accession: selectedFiling.accession,
+      cik: filingsData?.cik || '',
+      filingType: selectedFiling.form || '',
     })
   }
 
@@ -113,8 +142,22 @@ export default function SECFilings() {
   }, [])
 
   const scrollToTop = useCallback(() => {
-    if (contentRef.current) contentRef.current.scrollTop = 0
-  }, [])
+    if (viewMode === 'document' && iframeRef.current) {
+      try { iframeRef.current.contentWindow?.scrollTo(0, 0) } catch {}
+    } else if (contentRef.current) {
+      contentRef.current.scrollTop = 0
+    }
+  }, [viewMode])
+
+  // Sanitised HTML for iframe srcdoc
+  const sanitizedHtml = useMemo(() => {
+    if (!contentData?.html_content) return null
+    return DOMPurify.sanitize(contentData.html_content, {
+      WHOLE_DOCUMENT: true,
+      ADD_TAGS: ['style', 'link', 'base'],
+      ADD_ATTR: ['target', 'href'],
+    })
+  }, [contentData?.html_content])
 
   const filings = filingsData?.filings || []
   const companyName = filingsData?.company_name || ''
@@ -244,7 +287,7 @@ export default function SECFilings() {
             </div>
           </div>
 
-          {/* Right Panel: Document Preview + AI Search */}
+          {/* Right Panel: Document Preview + AI */}
           <div className="col-span-8 xl:col-span-9 flex flex-col min-h-0">
             {!selectedFiling ? (
               <div className="flex-1 flex items-center justify-center bg-white rounded-xl border border-gray-200">
@@ -256,7 +299,7 @@ export default function SECFilings() {
               </div>
             ) : (
               <div className="flex-1 flex flex-col min-h-0 gap-3">
-                {/* Document Header + AI Search Bar */}
+                {/* Document Header + AI Controls */}
                 <div className="bg-white rounded-xl border border-gray-200 p-4 flex-shrink-0">
                   <div className="flex items-center justify-between mb-3">
                     <div className="flex items-center gap-2">
@@ -271,50 +314,80 @@ export default function SECFilings() {
                       </span>
                       <span className="text-xs text-gray-400">{selectedFiling.filing_date}</span>
                     </div>
-                    <a
-                      href={selectedFiling.url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-xs text-blue-600 hover:text-blue-800 flex items-center gap-1"
-                    >
-                      View on SEC <ExternalLink size={12} />
-                    </a>
+                    <div className="flex items-center gap-3">
+                      {contentData?.url && (
+                        <a
+                          href={contentData.url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="flex items-center gap-1.5 bg-blue-600 text-white px-3 py-1.5 rounded-lg text-xs font-medium hover:bg-blue-700 transition-colors"
+                        >
+                          <ExternalLink size={12} /> Open Original
+                        </a>
+                      )}
+                      <a
+                        href={selectedFiling.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-xs text-blue-600 hover:text-blue-800 flex items-center gap-1"
+                      >
+                        View on SEC <ExternalLink size={12} />
+                      </a>
+                    </div>
                   </div>
 
-                  {/* AI Search */}
-                  <form onSubmit={handleAiSearch} className="flex gap-2">
-                    <div className="relative flex-1">
-                      <Sparkles size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-purple-400" />
-                      <input
-                        ref={searchInputRef}
-                        type="text"
-                        value={aiQuery}
-                        onChange={(e) => setAiQuery(e.target.value)}
-                        placeholder="Ask AI about this filing... (Ctrl+K)"
-                        className="w-full pl-9 pr-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent"
-                      />
-                    </div>
+                  {/* AI Search + Full Analysis */}
+                  <div className="flex gap-2">
+                    <form onSubmit={handleAiSearch} className="flex gap-2 flex-1">
+                      <div className="relative flex-1">
+                        <Sparkles size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-purple-400" />
+                        <input
+                          ref={searchInputRef}
+                          type="text"
+                          value={aiQuery}
+                          onChange={(e) => setAiQuery(e.target.value)}
+                          placeholder="Ask AI about this filing... (Ctrl+K)"
+                          className="w-full pl-9 pr-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                        />
+                      </div>
+                      <button
+                        type="submit"
+                        disabled={!aiQuery.trim() || aiSearch.isPending}
+                        className="flex items-center gap-1.5 bg-purple-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        {aiSearch.isPending ? (
+                          <><Loader2 size={14} className="animate-spin" /> Searching...</>
+                        ) : (
+                          <><Sparkles size={14} /> Ask AI</>
+                        )}
+                      </button>
+                    </form>
                     <button
-                      type="submit"
-                      disabled={!aiQuery.trim() || aiSearch.isPending}
-                      className="flex items-center gap-1.5 bg-purple-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                      onClick={handleAiAnalyze}
+                      disabled={aiAnalyze.isPending || contentLoading}
+                      className="flex items-center gap-1.5 bg-indigo-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap"
                     >
-                      {aiSearch.isPending ? (
-                        <><Loader2 size={14} className="animate-spin" /> Searching...</>
+                      {aiAnalyze.isPending ? (
+                        <><Loader2 size={14} className="animate-spin" /> Analyzing...</>
                       ) : (
-                        <><Sparkles size={14} /> Ask AI</>
+                        <><BrainCircuit size={14} /> Full AI Analysis</>
                       )}
                     </button>
-                  </form>
+                  </div>
 
                   {aiSearch.isError && (
                     <div className="mt-2 bg-red-50 border border-red-200 rounded-lg p-2 text-xs text-red-700">
                       {aiSearch.error?.response?.data?.detail || 'AI search failed'}
                     </div>
                   )}
+                  {aiAnalyze.isError && (
+                    <div className="mt-2 bg-red-50 border border-red-200 rounded-lg p-2 text-xs text-red-700">
+                      {aiAnalyze.error?.response?.data?.detail || 'AI analysis failed'}
+                    </div>
+                  )}
                 </div>
 
-                {/* AI Results Panel (overlay on top of document) */}
+                {/* AI Search Results Panel */}
                 {showAiPanel && aiResults && (
                   <div className="bg-purple-50 border border-purple-200 rounded-xl p-4 flex-shrink-0 max-h-[40%] overflow-y-auto">
                     <div className="flex items-center justify-between mb-3">
@@ -331,7 +404,6 @@ export default function SECFilings() {
 
                     <p className="text-sm text-gray-800 mb-3">{aiResults.answer}</p>
 
-                    {/* Key Figures */}
                     {aiResults.key_figures?.length > 0 && (
                       <div className="mb-3">
                         <h5 className="text-xs font-semibold text-purple-700 uppercase tracking-wide mb-1.5">Key Figures</h5>
@@ -346,7 +418,6 @@ export default function SECFilings() {
                       </div>
                     )}
 
-                    {/* Excerpts */}
                     {aiResults.excerpts?.length > 0 && (
                       <div>
                         <h5 className="text-xs font-semibold text-purple-700 uppercase tracking-wide mb-1.5">Relevant Excerpts</h5>
@@ -363,17 +434,220 @@ export default function SECFilings() {
                   </div>
                 )}
 
+                {/* AI Comprehensive Analysis Panel */}
+                {showAnalysisPanel && aiAnalysis && (
+                  <div className="bg-indigo-50 border border-indigo-200 rounded-xl p-4 flex-shrink-0 max-h-[50%] overflow-y-auto">
+                    <div className="flex items-center justify-between mb-3">
+                      <h4 className="text-sm font-semibold text-indigo-900 flex items-center gap-1.5">
+                        <BrainCircuit size={14} /> Filing Analysis
+                      </h4>
+                      <button
+                        onClick={() => setShowAnalysisPanel(false)}
+                        className="p-1 rounded hover:bg-indigo-100 text-indigo-400 hover:text-indigo-700"
+                      >
+                        <X size={14} />
+                      </button>
+                    </div>
+
+                    {/* Executive Summary */}
+                    <p className="text-sm text-gray-800 mb-4">{aiAnalysis.executive_summary}</p>
+
+                    {/* Key Financials */}
+                    {aiAnalysis.key_financials?.length > 0 && (
+                      <div className="mb-4">
+                        <h5 className="text-xs font-semibold text-indigo-700 uppercase tracking-wide mb-2">
+                          Key Financial Metrics
+                        </h5>
+                        <div className="grid grid-cols-2 lg:grid-cols-3 gap-2">
+                          {aiAnalysis.key_financials.map((kf, i) => (
+                            <div key={i} className="bg-white rounded-lg border border-indigo-100 px-3 py-2">
+                              <span className="text-xs text-gray-500 block">{kf.metric}</span>
+                              <span className="text-sm font-semibold text-gray-900">{kf.value}</span>
+                              {kf.change && (
+                                <span className={clsx('text-xs ml-1',
+                                  kf.change?.startsWith('+') ? 'text-green-600' : kf.change?.startsWith('-') ? 'text-red-600' : 'text-gray-500'
+                                )}>{kf.change}</span>
+                              )}
+                              {kf.assessment && (
+                                <p className="text-xs text-gray-400 mt-0.5">{kf.assessment}</p>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Notable Items */}
+                    {aiAnalysis.notable_items?.length > 0 && (
+                      <div className="mb-4">
+                        <h5 className="text-xs font-semibold text-indigo-700 uppercase tracking-wide mb-2">
+                          Notable Items
+                        </h5>
+                        <div className="space-y-2">
+                          {aiAnalysis.notable_items.map((item, i) => (
+                            <div key={i} className="bg-white rounded-lg border border-indigo-100 p-3">
+                              <div className="flex items-center gap-2 mb-1">
+                                <span className={clsx('text-xs font-bold px-1.5 py-0.5 rounded',
+                                  item.severity === 'high' ? 'bg-red-100 text-red-800' :
+                                  item.severity === 'medium' ? 'bg-amber-100 text-amber-800' :
+                                  'bg-green-100 text-green-800'
+                                )}>{item.category}</span>
+                                <span className="text-sm font-medium text-gray-900">{item.title}</span>
+                              </div>
+                              <p className="text-xs text-gray-600">{item.detail}</p>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Risk Assessment */}
+                    {aiAnalysis.risk_assessment && (
+                      <div className="mb-4">
+                        <h5 className="text-xs font-semibold text-indigo-700 uppercase tracking-wide mb-2">
+                          Risk Assessment
+                        </h5>
+                        <div className="bg-white rounded-lg border border-indigo-100 p-3">
+                          <span className={clsx('text-xs font-bold px-2 py-0.5 rounded mb-2 inline-block',
+                            aiAnalysis.risk_assessment.overall_risk === 'high' ? 'bg-red-100 text-red-800' :
+                            aiAnalysis.risk_assessment.overall_risk === 'medium' ? 'bg-amber-100 text-amber-800' :
+                            'bg-green-100 text-green-800'
+                          )}>
+                            {aiAnalysis.risk_assessment.overall_risk?.toUpperCase()} RISK
+                          </span>
+                          {aiAnalysis.risk_assessment.risk_changes && (
+                            <p className="text-xs text-gray-600 mt-1">{aiAnalysis.risk_assessment.risk_changes}</p>
+                          )}
+                          {aiAnalysis.risk_assessment.key_risks?.length > 0 && (
+                            <ul className="text-xs text-gray-700 space-y-1 mt-2">
+                              {aiAnalysis.risk_assessment.key_risks.map((r, i) => (
+                                <li key={i} className="flex items-start gap-1.5">
+                                  <AlertTriangle size={10} className="text-amber-500 mt-0.5 shrink-0" />
+                                  {r}
+                                </li>
+                              ))}
+                            </ul>
+                          )}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Management Outlook */}
+                    {aiAnalysis.management_outlook && (
+                      <div className="mb-4">
+                        <h5 className="text-xs font-semibold text-indigo-700 uppercase tracking-wide mb-2">
+                          Management Outlook
+                        </h5>
+                        <div className="bg-white rounded-lg border border-indigo-100 p-3">
+                          <p className="text-xs text-gray-700">{aiAnalysis.management_outlook}</p>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Positive Signals & Red Flags */}
+                    <div className="grid grid-cols-2 gap-3 mb-3">
+                      {aiAnalysis.positive_signals?.length > 0 && (
+                        <div>
+                          <h5 className="text-xs font-semibold text-green-700 uppercase tracking-wide mb-1.5">
+                            Positive Signals
+                          </h5>
+                          <ul className="text-xs text-gray-700 space-y-1">
+                            {aiAnalysis.positive_signals.map((s, i) => (
+                              <li key={i} className="flex items-start gap-1.5">
+                                <CheckCircle2 size={10} className="text-green-500 mt-0.5 shrink-0" /> {s}
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+                      {aiAnalysis.red_flags?.length > 0 && (
+                        <div>
+                          <h5 className="text-xs font-semibold text-red-700 uppercase tracking-wide mb-1.5">
+                            Red Flags
+                          </h5>
+                          <ul className="text-xs text-gray-700 space-y-1">
+                            {aiAnalysis.red_flags.map((f, i) => (
+                              <li key={i} className="flex items-start gap-1.5">
+                                <AlertTriangle size={10} className="text-red-500 mt-0.5 shrink-0" /> {f}
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Disclaimer */}
+                    <div className="bg-amber-50 border border-amber-100 rounded-lg px-3 py-2">
+                      <p className="text-xs text-amber-700">
+                        AI-generated analysis. Not financial advice. Always verify key data points against the source document.
+                      </p>
+                    </div>
+                  </div>
+                )}
+
                 {/* Document Content */}
-                <div className="flex-1 bg-white rounded-xl border border-gray-200 overflow-hidden min-h-0 relative">
+                <div className="flex-1 bg-white rounded-xl border border-gray-200 overflow-hidden min-h-0 relative flex flex-col">
+                  {/* View mode toggle */}
+                  {contentData && (contentData.html_content || contentData.content) && (
+                    <div className="flex items-center gap-1 px-4 py-2 border-b border-gray-100 bg-gray-50 flex-shrink-0">
+                      <button
+                        onClick={() => setViewMode('document')}
+                        className={clsx(
+                          'flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md transition-colors',
+                          viewMode === 'document'
+                            ? 'bg-blue-600 text-white'
+                            : 'bg-white text-gray-600 hover:bg-gray-100 border border-gray-200'
+                        )}
+                      >
+                        <Eye size={12} /> Document
+                      </button>
+                      <button
+                        onClick={() => setViewMode('text')}
+                        className={clsx(
+                          'flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md transition-colors',
+                          viewMode === 'text'
+                            ? 'bg-blue-600 text-white'
+                            : 'bg-white text-gray-600 hover:bg-gray-100 border border-gray-200'
+                        )}
+                      >
+                        <Code size={12} /> Plain Text
+                      </button>
+                      {contentData.truncated && (
+                        <span className="text-xs text-amber-600 ml-auto">
+                          Truncated ({(contentData.char_count / 1000).toFixed(0)}k chars)
+                        </span>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Content area */}
                   {contentLoading ? (
-                    <div className="flex items-center justify-center h-full text-gray-400 text-sm gap-2">
+                    <div className="flex items-center justify-center flex-1 text-gray-400 text-sm gap-2">
                       <Loader2 size={16} className="animate-spin" /> Loading document...
                     </div>
+                  ) : viewMode === 'document' && sanitizedHtml ? (
+                    <>
+                      <iframe
+                        ref={iframeRef}
+                        title="SEC Filing Document"
+                        sandbox="allow-same-origin"
+                        srcDoc={sanitizedHtml}
+                        className="w-full flex-1 border-0"
+                        style={{ minHeight: '400px' }}
+                      />
+                      <button
+                        onClick={scrollToTop}
+                        className="absolute bottom-4 right-4 p-2 bg-white border border-gray-200 rounded-lg shadow-md hover:bg-gray-50 text-gray-400 hover:text-gray-700 transition-colors z-10"
+                        title="Scroll to top"
+                      >
+                        <ArrowUp size={16} />
+                      </button>
+                    </>
                   ) : contentData?.content ? (
                     <>
                       <div
                         ref={contentRef}
-                        className="h-full overflow-y-auto px-6 py-5"
+                        className="flex-1 overflow-y-auto px-6 py-5"
                       >
                         <pre className="whitespace-pre-wrap font-sans text-sm text-gray-700 leading-relaxed">
                           {contentData.content}
@@ -385,7 +659,6 @@ export default function SECFilings() {
                           </div>
                         )}
                       </div>
-                      {/* Scroll to top button */}
                       <button
                         onClick={scrollToTop}
                         className="absolute bottom-4 right-4 p-2 bg-white border border-gray-200 rounded-lg shadow-md hover:bg-gray-50 text-gray-400 hover:text-gray-700 transition-colors"
@@ -395,7 +668,7 @@ export default function SECFilings() {
                       </button>
                     </>
                   ) : (
-                    <div className="flex items-center justify-center h-full text-gray-400 text-sm">
+                    <div className="flex items-center justify-center flex-1 text-gray-400 text-sm">
                       Could not load document content.
                     </div>
                   )}
