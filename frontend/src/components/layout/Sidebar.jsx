@@ -1,5 +1,5 @@
 import { NavLink } from 'react-router-dom'
-import { LayoutDashboard, Briefcase, Radio, BrainCircuit, ImagePlus, Calculator, FileText } from 'lucide-react'
+import { LayoutDashboard, Briefcase, Radio, BrainCircuit, ImagePlus, Calculator, FileText, FileSearch } from 'lucide-react'
 import clsx from 'clsx'
 
 const links = [
@@ -10,6 +10,7 @@ const links = [
   { to: '/chart-analysis', label: 'Chart Analysis', icon: ImagePlus },
   { to: '/dcf', label: 'DCF Valuation', icon: Calculator },
   { to: '/sec-filings', label: 'SEC Filings', icon: FileText },
+  { to: '/pdf-research', label: 'PDF Research', icon: FileSearch },
 ]
 
 export default function Sidebar() {

@@ -9,6 +9,7 @@ import ChartAnalysis from './pages/ChartAnalysis'
 import DCFCalculator from './pages/DCFCalculator'
 import StockDetail from './pages/StockDetail'
 import SECFilings from './pages/SECFilings'
+import PDFResearch from './pages/PDFResearch'
 
 export default function App() {
   return (
@@ -23,6 +24,7 @@ export default function App() {
             <Route path="/chart-analysis" element={<ChartAnalysis />} />
             <Route path="/dcf" element={<DCFCalculator />} />
             <Route path="/sec-filings" element={<SECFilings />} />
+            <Route path="/pdf-research" element={<PDFResearch />} />
             <Route path="/stock/:ticker" element={<StockDetail />} />
           </Routes>
         </MainLayout>
