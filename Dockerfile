@@ -9,7 +9,8 @@ WORKDIR /app/frontend
 COPY frontend/package.json frontend/package-lock.json* ./
 RUN npm ci
 
-# Copy source and build
+# Copy source and build — bust cache on every deploy
+ARG CACHE_BUST=1
 COPY frontend/ ./
 RUN npm run build
 
