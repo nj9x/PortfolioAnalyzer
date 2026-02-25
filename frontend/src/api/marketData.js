@@ -42,3 +42,6 @@ export const getTickerTechnicals = (ticker) =>
 
 export const getTickerHistory = (ticker, period = '1y') =>
   api.get('/market-data/history', { params: { ticker, period } }).then(r => r.data)
+
+export const getTickerRisk = (ticker) =>
+  api.get('/market-data/ticker-risk', { params: { ticker } }).then(r => r.data)

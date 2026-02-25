@@ -1,9 +1,12 @@
 """Portfolio-level risk computations."""
 
 import logging
+from datetime import datetime, timedelta
+
 import numpy as np
 import pandas as pd
 from app.data_sources.massive import fetch_info, fetch_history_days
+from app.data_sources.fred import fetch_risk_free_rate
 
 logger = logging.getLogger(__name__)
 
@@ -27,6 +30,129 @@ def compute_portfolio_risk(holdings: list[dict], quotes: dict) -> dict:
         "correlation": correlation,
         "drawdowns": drawdowns,
         "stop_loss_alerts": stop_loss,
+    }
+
+
+def compute_ticker_risk(ticker: str) -> dict:
+    """Compute per-ticker risk metrics: alpha, beta, Sharpe ratio, Monte Carlo."""
+    ticker_history = fetch_history_days(ticker, 365)
+    spy_history = fetch_history_days("SPY", 365)
+
+    if len(ticker_history) < 30 or len(spy_history) < 30:
+        return {"error": f"Insufficient history for {ticker}"}
+
+    # Align by date
+    spy_map = {h["date"]: h["close"] for h in spy_history}
+    aligned_dates = []
+    aligned_ticker_prices = []
+    aligned_spy_prices = []
+    for h in ticker_history:
+        if h["date"] in spy_map:
+            aligned_dates.append(h["date"])
+            aligned_ticker_prices.append(h["close"])
+            aligned_spy_prices.append(spy_map[h["date"]])
+
+    if len(aligned_ticker_prices) < 30:
+        return {"error": f"Insufficient aligned data for {ticker}"}
+
+    t_prices = np.array(aligned_ticker_prices)
+    s_prices = np.array(aligned_spy_prices)
+
+    # Daily returns
+    t_returns = np.diff(t_prices) / t_prices[:-1]
+    s_returns = np.diff(s_prices) / s_prices[:-1]
+
+    # Risk-free rate
+    rf = fetch_risk_free_rate()
+    if rf is None:
+        rf = 0.043
+    daily_rf = rf / 252
+
+    # Beta
+    cov_matrix = np.cov(t_returns, s_returns)
+    beta = float(cov_matrix[0][1] / cov_matrix[1][1]) if cov_matrix[1][1] != 0 else 1.0
+
+    # Annualized return & volatility
+    ticker_ann_return = float(np.mean(t_returns) * 252)
+    market_ann_return = float(np.mean(s_returns) * 252)
+    ticker_ann_std = float(np.std(t_returns, ddof=1) * np.sqrt(252))
+
+    # Jensen's Alpha
+    alpha = ticker_ann_return - (rf + beta * (market_ann_return - rf))
+
+    # Sharpe Ratio
+    sharpe = (ticker_ann_return - rf) / ticker_ann_std if ticker_ann_std != 0 else 0.0
+
+    # Monte Carlo Simulation (GBM)
+    num_sims = 1000
+    num_days = 126  # ~6 months
+    last_price = float(t_prices[-1])
+    mu = ticker_ann_return
+    sigma = ticker_ann_std
+    dt = 1 / 252
+
+    rng = np.random.default_rng(42)
+    Z = rng.standard_normal((num_sims, num_days))
+    daily_log_returns = (mu - 0.5 * sigma**2) * dt + sigma * np.sqrt(dt) * Z
+    cumulative = np.cumsum(daily_log_returns, axis=1)
+    price_paths = last_price * np.exp(cumulative)
+
+    start_col = np.full((num_sims, 1), last_price)
+    price_paths = np.hstack([start_col, price_paths])
+
+    # Percentile bands
+    bands = {}
+    for p in [5, 25, 50, 75, 95]:
+        bands[f"p{p}"] = [round(v, 2) for v in np.percentile(price_paths, p, axis=0).tolist()]
+
+    # Projection dates (skip weekends)
+    last_date = datetime.strptime(aligned_dates[-1], "%Y-%m-%d")
+    projection_dates = []
+    current = last_date
+    for _ in range(num_days + 1):
+        projection_dates.append(current.strftime("%Y-%m-%d"))
+        current += timedelta(days=1)
+        while current.weekday() >= 5:
+            current += timedelta(days=1)
+
+    # Interpretations
+    beta_interp = (
+        "High volatility vs market" if beta > 1.3
+        else "Low volatility vs market" if beta < 0.7
+        else "Roughly tracks the market"
+    )
+    alpha_interp = (
+        "Outperforming risk-adjusted expectations" if alpha > 0.02
+        else "Underperforming risk-adjusted expectations" if alpha < -0.02
+        else "Performing near risk-adjusted expectations"
+    )
+    sharpe_interp = (
+        "Excellent risk-adjusted return" if sharpe > 1.0
+        else "Good risk-adjusted return" if sharpe > 0.5
+        else "Moderate risk-adjusted return" if sharpe > 0
+        else "Poor risk-adjusted return"
+    )
+
+    return {
+        "ticker": ticker,
+        "period": "1y",
+        "risk_free_rate": round(rf, 4),
+        "beta": {"value": round(beta, 3), "interpretation": beta_interp},
+        "alpha": {
+            "value": round(alpha, 4),
+            "annualized_pct": round(alpha * 100, 2),
+            "interpretation": alpha_interp,
+        },
+        "sharpe_ratio": {"value": round(sharpe, 3), "interpretation": sharpe_interp},
+        "annualized_return": round(ticker_ann_return * 100, 2),
+        "annualized_volatility": round(ticker_ann_std * 100, 2),
+        "monte_carlo": {
+            "dates": projection_dates,
+            "bands": bands,
+            "num_simulations": num_sims,
+            "num_days": num_days,
+            "start_price": round(last_price, 2),
+        },
     }
 
 

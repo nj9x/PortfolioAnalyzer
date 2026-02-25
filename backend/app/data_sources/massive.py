@@ -227,6 +227,47 @@ def fetch_ticker_overview(ticker: str) -> dict:
     return result
 
 
+# ─── Ticker Search ─────────────────────────────────────────────────────
+
+
+def search_tickers(query: str, limit: int = 10) -> list[dict]:
+    """Search for tickers by name or symbol.
+
+    GET /v3/reference/tickers?search={query}&active=true&market=stocks&limit={limit}
+    """
+    if not query or len(query) < 1:
+        return []
+
+    cache_key = f"massive_ticker_search:{query.lower()}:{limit}"
+    cached = cache.get(cache_key)
+    if cached:
+        return cached
+
+    url = f"{BASE_URL}/v3/reference/tickers"
+    data = _get(url, params={
+        "search": query,
+        "active": "true",
+        "limit": str(limit),
+        "market": "stocks",
+        "order": "asc",
+        "sort": "ticker",
+    })
+    results = data.get("results", [])
+
+    tickers = [
+        {
+            "ticker": r.get("ticker", ""),
+            "name": r.get("name", ""),
+            "type": r.get("type", ""),
+            "primary_exchange": r.get("primary_exchange", ""),
+        }
+        for r in results
+    ]
+
+    cache.set(cache_key, tickers, 300)  # 5 min cache
+    return tickers
+
+
 # ─── Financials (unified endpoint) ────────────────────────────────────
 
 

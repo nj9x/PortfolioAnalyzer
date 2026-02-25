@@ -144,6 +144,27 @@ def get_history(
     return {"ticker": ticker.upper(), "period": period, "bars": data}
 
 
+@router.get("/ticker-risk")
+def get_ticker_risk(
+    ticker: str = Query(..., description="Single ticker symbol for risk analysis"),
+):
+    """Get per-ticker risk metrics: alpha, beta, Sharpe ratio, Monte Carlo simulation."""
+    ticker = ticker.strip().upper()
+
+    cache_key = f"ticker_risk:{ticker}"
+    cached = cache.get(cache_key)
+    if cached:
+        return {"risk": cached}
+
+    from app.services.risk_service import compute_ticker_risk
+    result = compute_ticker_risk(ticker)
+
+    if "error" not in result:
+        cache.set(cache_key, result, 300)
+
+    return {"risk": result}
+
+
 @router.post("/refresh")
 def refresh_cache():
     """Clear all cached market data to force fresh fetches."""

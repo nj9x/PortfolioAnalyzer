@@ -7,7 +7,7 @@ from pathlib import Path
 from fastapi import UploadFile
 from sqlalchemy.orm import Session
 
-from app.claude.client import analyze_chart_image
+from app.claude.client import analyze_chart_image, analyze_ticker_data
 from app.claude.response_parser import parse_analysis_response
 from app.config import get_settings
 from app.models.chart_analysis import ChartAnalysis
@@ -117,3 +117,61 @@ def delete_analysis(db: Session, analysis_id: int) -> bool:
     db.delete(record)
     db.commit()
     return True
+
+
+def analyze_ticker(
+    db: Session,
+    ticker: str,
+    user_notes: str = "",
+) -> ChartAnalysis:
+    """Fetch OHLCV data for a ticker and run Claude technical analysis."""
+    from app.data_sources.massive import fetch_history
+
+    settings = get_settings()
+    if not settings.ANTHROPIC_API_KEY:
+        raise ValueError("ANTHROPIC_API_KEY is not configured")
+
+    ticker = ticker.strip().upper()
+
+    # Fetch 6 months of daily data
+    bars = fetch_history(ticker, period="6mo")
+    if not bars or len(bars) < 10:
+        raise ValueError(f"Insufficient price data for {ticker}")
+
+    # Format OHLCV as text table for Claude
+    lines = [f"Ticker: {ticker}", f"Period: 6 months daily", f"Bars: {len(bars)}", ""]
+    lines.append("Date       | Open     | High     | Low      | Close    | Volume")
+    lines.append("-" * 75)
+    for bar in bars:
+        lines.append(
+            f"{bar['date']}  | {bar['open']:>8.2f} | {bar['high']:>8.2f} | "
+            f"{bar['low']:>8.2f} | {bar['close']:>8.2f} | {bar['volume']:>10,}"
+        )
+    ohlcv_text = "\n".join(lines)
+
+    # Call Claude
+    raw_response = analyze_ticker_data(ticker, ohlcv_text, user_notes)
+
+    # Parse response
+    parsed = parse_analysis_response(raw_response)
+    # Ensure ticker is set
+    if not parsed.get("ticker"):
+        parsed["ticker"] = ticker
+
+    # Persist to database
+    chart_analysis = ChartAnalysis(
+        image_path="",
+        original_filename=f"{ticker}_data_analysis",
+        ticker=parsed.get("ticker", ticker),
+        timeframe=parsed.get("timeframe", "1D"),
+        analysis_type="technical",
+        raw_response=raw_response,
+        parsed_results=json.dumps(parsed),
+        model_used=settings.CLAUDE_MODEL,
+        trend=parsed.get("trend"),
+        overall_bias=parsed.get("overall_bias"),
+    )
+    db.add(chart_analysis)
+    db.commit()
+    db.refresh(chart_analysis)
+    return chart_analysis

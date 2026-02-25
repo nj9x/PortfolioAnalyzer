@@ -20,3 +20,9 @@ export const deleteChartAnalysis = (id) =>
   api.delete(`/chart-analysis/${id}`)
 
 export const getChartImageUrl = (id) => `/api/v1/chart-analysis/image/${id}`
+
+export const analyzeTicker = (ticker, userNotes = '') =>
+  api.post('/chart-analysis/analyze-ticker', { ticker, user_notes: userNotes }).then(r => r.data)
+
+export const searchTickers = (query) =>
+  api.get('/chart-analysis/search-tickers', { params: { q: query } }).then(r => r.data)

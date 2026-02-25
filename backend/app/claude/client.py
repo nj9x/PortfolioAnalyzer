@@ -115,3 +115,38 @@ def analyze_chart_image(
         )
 
     return message.content[0].text
+
+
+def analyze_ticker_data(ticker: str, ohlcv_text: str, user_notes: str = "") -> str:
+    """Send OHLCV price data to Claude for technical analysis (no image)."""
+    from app.claude.chart_prompts import TICKER_ANALYSIS_SYSTEM_PROMPT
+
+    settings = get_settings()
+    client = anthropic.Anthropic(
+        api_key=settings.ANTHROPIC_API_KEY,
+        timeout=_API_TIMEOUT,
+        max_retries=0,
+    )
+
+    text = (
+        f"Analyze the following daily OHLCV data for {ticker}. "
+        "Identify all key levels, patterns, and provide trading suggestions. "
+        "Respond ONLY with valid JSON matching the structure specified in your instructions.\n\n"
+        f"{ohlcv_text}"
+        + (f"\n\nAdditional context from user: {user_notes}" if user_notes else "")
+    )
+
+    message = client.messages.create(
+        model=settings.CLAUDE_MODEL,
+        max_tokens=settings.CLAUDE_MAX_TOKENS,
+        system=TICKER_ANALYSIS_SYSTEM_PROMPT,
+        messages=[{"role": "user", "content": text}],
+    )
+
+    if message.stop_reason == "max_tokens":
+        logger.warning(
+            "Claude ticker analysis response was truncated (hit max_tokens=%d).",
+            settings.CLAUDE_MAX_TOKENS,
+        )
+
+    return message.content[0].text

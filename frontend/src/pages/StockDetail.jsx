@@ -1,9 +1,9 @@
 import { useParams, useNavigate } from 'react-router-dom'
-import { useState } from 'react'
-import { ArrowLeft, CheckCircle, AlertTriangle, HelpCircle, Activity, BarChart3, Target } from 'lucide-react'
+import { useState, useMemo } from 'react'
+import { ArrowLeft, CheckCircle, AlertTriangle, HelpCircle, Activity, BarChart3, Target, Shield } from 'lucide-react'
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts'
 import clsx from 'clsx'
-import { useTickerQuote, useTickerFundamentals, useTickerTechnicals, useTickerHistory } from '../hooks/useMarketData'
+import { useTickerQuote, useTickerFundamentals, useTickerTechnicals, useTickerHistory, useTickerRisk } from '../hooks/useMarketData'
 import LoadingSpinner from '../components/common/LoadingSpinner'
 
 // ─── Helpers ────────────────────────────────────────────────────────
@@ -87,6 +87,56 @@ const flagBadge = (flag) => {
   )
 }
 
+// ─── Risk Metric Card ───────────────────────────────────────────────
+
+function RiskMetricCard({ label, value, suffix = '', interpretation, color }) {
+  return (
+    <div className="bg-white rounded-xl border border-gray-200 p-4">
+      <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">{label}</p>
+      <p className={clsx('text-2xl font-bold font-mono', color || 'text-gray-900')}>
+        {value != null ? `${value}${suffix}` : 'N/A'}
+      </p>
+      {interpretation && (
+        <p className="text-xs text-gray-500 mt-1">{interpretation}</p>
+      )}
+    </div>
+  )
+}
+
+// ─── Monte Carlo Tooltip ────────────────────────────────────────────
+
+function MonteCarloTooltip({ active, payload }) {
+  if (!active || !payload?.length) return null
+  const d = payload[0]?.payload
+  return (
+    <div className="bg-slate-800 border border-slate-700/60 rounded-lg p-3 shadow-xl text-sm">
+      <p className="font-semibold text-slate-200 mb-1">{d.date}</p>
+      <div className="space-y-0.5 text-xs">
+        <div className="flex justify-between gap-4">
+          <span className="text-red-400">95th %ile</span>
+          <span className="text-slate-200 font-mono">${d.p95?.toFixed(2)}</span>
+        </div>
+        <div className="flex justify-between gap-4">
+          <span className="text-orange-400">75th %ile</span>
+          <span className="text-slate-200 font-mono">${d.p75?.toFixed(2)}</span>
+        </div>
+        <div className="flex justify-between gap-4">
+          <span className="text-blue-400">Median</span>
+          <span className="text-white font-mono font-semibold">${d.p50?.toFixed(2)}</span>
+        </div>
+        <div className="flex justify-between gap-4">
+          <span className="text-orange-400">25th %ile</span>
+          <span className="text-slate-200 font-mono">${d.p25?.toFixed(2)}</span>
+        </div>
+        <div className="flex justify-between gap-4">
+          <span className="text-red-400">5th %ile</span>
+          <span className="text-slate-200 font-mono">${d.p5?.toFixed(2)}</span>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ─── Price Chart Tooltip ────────────────────────────────────────────
 
 function PriceTooltip({ active, payload }) {
@@ -144,11 +194,32 @@ export default function StockDetail() {
   const { data: fundData } = useTickerFundamentals(ticker)
   const { data: techData } = useTickerTechnicals(ticker)
   const { data: historyData, isLoading: histLoading } = useTickerHistory(ticker, period)
+  const { data: riskData, isLoading: riskLoading } = useTickerRisk(ticker)
 
   const quote = quoteData?.quotes?.[ticker] || {}
   const fundamentals = fundData?.fundamentals?.[ticker] || {}
   const technicals = techData?.technicals?.[ticker] || {}
   const bars = historyData?.bars || []
+  const risk = riskData?.risk || {}
+  const monteCarlo = risk.monte_carlo || {}
+
+  const monteCarloChartData = useMemo(() => {
+    if (!monteCarlo.dates || !monteCarlo.bands) return []
+    return monteCarlo.dates.map((date, i) => ({
+      date,
+      p5: monteCarlo.bands.p5?.[i],
+      p25: monteCarlo.bands.p25?.[i],
+      p50: monteCarlo.bands.p50?.[i],
+      p75: monteCarlo.bands.p75?.[i],
+      p95: monteCarlo.bands.p95?.[i],
+      // Stacked deltas for Recharts band rendering
+      base: monteCarlo.bands.p5?.[i],
+      outerLower: (monteCarlo.bands.p25?.[i] || 0) - (monteCarlo.bands.p5?.[i] || 0),
+      innerLower: (monteCarlo.bands.p50?.[i] || 0) - (monteCarlo.bands.p25?.[i] || 0),
+      innerUpper: (monteCarlo.bands.p75?.[i] || 0) - (monteCarlo.bands.p50?.[i] || 0),
+      outerUpper: (monteCarlo.bands.p95?.[i] || 0) - (monteCarlo.bands.p75?.[i] || 0),
+    }))
+  }, [monteCarlo])
 
   const changePct = quote.day_change_pct
   const isUp = changePct > 0
@@ -319,6 +390,119 @@ export default function StockDetail() {
           </div>
         </div>
       </div>
+
+      {/* Risk Assessment */}
+      {riskLoading ? (
+        <div className="bg-white rounded-xl border border-gray-200 p-5">
+          <div className="h-[200px] flex items-center justify-center text-gray-400 text-sm">
+            Calculating risk metrics...
+          </div>
+        </div>
+      ) : risk && !risk.error ? (
+        <div className="space-y-4">
+          <div className="flex items-center gap-2">
+            <Shield size={18} className="text-gray-500" />
+            <h2 className="font-semibold text-gray-900">Risk Assessment</h2>
+            <span className="text-xs text-gray-400 ml-auto">
+              Rf: {((risk.risk_free_rate || 0) * 100).toFixed(1)}% | Period: {risk.period}
+            </span>
+          </div>
+
+          {/* Metric Cards Row */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <RiskMetricCard
+              label="Beta"
+              value={risk.beta?.value}
+              interpretation={risk.beta?.interpretation}
+              color={
+                risk.beta?.value > 1.3 ? 'text-red-600'
+                  : risk.beta?.value < 0.7 ? 'text-blue-600'
+                  : 'text-gray-900'
+              }
+            />
+            <RiskMetricCard
+              label="Jensen's Alpha"
+              value={risk.alpha?.annualized_pct}
+              suffix="%"
+              interpretation={risk.alpha?.interpretation}
+              color={
+                risk.alpha?.annualized_pct > 0 ? 'text-green-600'
+                  : risk.alpha?.annualized_pct < 0 ? 'text-red-600'
+                  : 'text-gray-900'
+              }
+            />
+            <RiskMetricCard
+              label="Sharpe Ratio"
+              value={risk.sharpe_ratio?.value}
+              interpretation={risk.sharpe_ratio?.interpretation}
+              color={
+                risk.sharpe_ratio?.value > 1.0 ? 'text-green-600'
+                  : risk.sharpe_ratio?.value > 0.5 ? 'text-blue-600'
+                  : risk.sharpe_ratio?.value < 0 ? 'text-red-600'
+                  : 'text-gray-900'
+              }
+            />
+          </div>
+
+          {/* Extra stats */}
+          <div className="flex gap-4 text-xs text-gray-500">
+            <span>Annualized Return: <span className="font-mono font-medium text-gray-700">{risk.annualized_return}%</span></span>
+            <span>Annualized Volatility: <span className="font-mono font-medium text-gray-700">{risk.annualized_volatility}%</span></span>
+          </div>
+
+          {/* Monte Carlo Fan Chart */}
+          {monteCarloChartData.length > 0 && (
+            <div className="bg-white rounded-xl border border-gray-200 p-5">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide">
+                  Monte Carlo Simulation — 6 Month Projection
+                </h3>
+                <span className="text-xs text-gray-400">
+                  {monteCarlo.num_simulations?.toLocaleString()} paths | Start: ${monteCarlo.start_price}
+                </span>
+              </div>
+              <ResponsiveContainer width="100%" height={320}>
+                <AreaChart data={monteCarloChartData} stackOffset="none" margin={{ top: 5, right: 5, left: 5, bottom: 5 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+                  <XAxis
+                    dataKey="date"
+                    tick={{ fontSize: 11, fill: '#9ca3af' }}
+                    tickFormatter={(d) => {
+                      const date = new Date(d)
+                      return date.toLocaleDateString('en-US', { month: 'short' })
+                    }}
+                    interval="preserveStartEnd"
+                  />
+                  <YAxis
+                    tick={{ fontSize: 11, fill: '#9ca3af' }}
+                    tickFormatter={(v) => `$${v.toFixed(0)}`}
+                    domain={['auto', 'auto']}
+                    width={65}
+                  />
+                  <Tooltip content={<MonteCarloTooltip />} />
+                  <Area dataKey="base" stackId="mc" stroke="none" fill="transparent" />
+                  <Area dataKey="outerLower" stackId="mc" stroke="none" fill="#fecaca" fillOpacity={0.4} />
+                  <Area dataKey="innerLower" stackId="mc" stroke="none" fill="#bfdbfe" fillOpacity={0.5} />
+                  <Area dataKey="innerUpper" stackId="mc" stroke="none" fill="#bfdbfe" fillOpacity={0.5} />
+                  <Area dataKey="outerUpper" stackId="mc" stroke="none" fill="#fecaca" fillOpacity={0.4} />
+                  <Area dataKey="p50" stroke="#3b82f6" strokeWidth={2} fill="none" dot={false} />
+                </AreaChart>
+              </ResponsiveContainer>
+              <div className="flex justify-center gap-6 mt-2 text-xs text-gray-500">
+                <span className="flex items-center gap-1">
+                  <span className="inline-block w-3 h-3 rounded-sm bg-red-100 border border-red-300" /> 5th–95th %ile
+                </span>
+                <span className="flex items-center gap-1">
+                  <span className="inline-block w-3 h-3 rounded-sm bg-blue-100 border border-blue-300" /> 25th–75th %ile
+                </span>
+                <span className="flex items-center gap-1">
+                  <span className="inline-block w-3 h-1 bg-blue-500 rounded" /> Median
+                </span>
+              </div>
+            </div>
+          )}
+        </div>
+      ) : null}
 
       {/* Technical Indicators */}
       {technicals && !technicals.error && (

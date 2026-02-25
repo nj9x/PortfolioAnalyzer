@@ -1,12 +1,13 @@
 import { useState, useCallback } from 'react'
 import { useDropzone } from 'react-dropzone'
-import { useAnalyzeChart, useChartHistory, useChartAnalysis } from '../hooks/useChartAnalysis'
+import { useAnalyzeChart, useChartHistory, useChartAnalysis, useAnalyzeTicker, useTickerSearch } from '../hooks/useChartAnalysis'
 import { getChartImageUrl } from '../api/chartAnalysis'
 import ChartAnalysisResults from '../components/chart/ChartAnalysisResults'
+import ChartAnalysisLoading from '../components/chart/ChartAnalysisLoading'
 import LoadingSpinner from '../components/common/LoadingSpinner'
 import EmptyState from '../components/common/EmptyState'
 import {
-  ImagePlus, Play, Upload, X, Clock, TrendingUp, TrendingDown, Minus, Trash2
+  ImagePlus, Play, Upload, X, Clock, TrendingUp, TrendingDown, Minus, Trash2, Search, Loader2
 } from 'lucide-react'
 import clsx from 'clsx'
 
@@ -27,13 +28,19 @@ export default function ChartAnalysis() {
   const [preview, setPreview] = useState(null)
   const [userNotes, setUserNotes] = useState('')
   const [selectedId, setSelectedId] = useState(null)
+  const [tickerInput, setTickerInput] = useState('')
+  const [showDropdown, setShowDropdown] = useState(false)
 
   const analyze = useAnalyzeChart()
+  const analyzeTicker = useAnalyzeTicker()
+  const { data: tickerResults = [], isFetching: isSearching } = useTickerSearch(tickerInput)
   const { data: history = [] } = useChartHistory()
   const { data: selectedAnalysis } = useChartAnalysis(selectedId)
 
+  const isPending = analyze.isPending || analyzeTicker.isPending
+
   // The latest result: either the mutation response or a loaded history item
-  const currentAnalysis = selectedId ? selectedAnalysis : analyze.data
+  const currentAnalysis = selectedId ? selectedAnalysis : (analyzeTicker.data || analyze.data)
 
   const onDrop = useCallback((accepted) => {
     if (accepted.length > 0) {
@@ -58,7 +65,18 @@ export default function ChartAnalysis() {
   const handleAnalyze = () => {
     if (!file) return
     setSelectedId(null)
+    analyzeTicker.reset()
     analyze.mutate({ file, analysisType: 'technical', userNotes })
+  }
+
+  const handleTickerAnalyze = (e) => {
+    e.preventDefault()
+    if (!tickerInput.trim()) return
+    setSelectedId(null)
+    setFile(null)
+    setPreview(null)
+    analyze.reset()
+    analyzeTicker.mutate({ ticker: tickerInput.trim(), userNotes })
   }
 
   const handleClear = () => {
@@ -66,7 +84,9 @@ export default function ChartAnalysis() {
     setPreview(null)
     setUserNotes('')
     setSelectedId(null)
+    setTickerInput('')
     analyze.reset()
+    analyzeTicker.reset()
   }
 
   const handleHistoryClick = (id) => {
@@ -74,6 +94,7 @@ export default function ChartAnalysis() {
     setFile(null)
     setPreview(null)
     analyze.reset()
+    analyzeTicker.reset()
   }
 
   return (
@@ -87,11 +108,93 @@ export default function ChartAnalysis() {
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Left column: Upload + History */}
+        {/* Left column: Ticker Search + Upload + History */}
         <div className="space-y-4">
+          {/* Ticker Search */}
+          <div className="bg-white rounded-lg border border-gray-200 p-5">
+            <h3 className="font-medium text-gray-900 mb-3">Analyze by Ticker</h3>
+            <form onSubmit={handleTickerAnalyze} className="flex gap-2">
+              <div className="relative flex-1">
+                <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+                <input
+                  type="text"
+                  value={tickerInput}
+                  onChange={(e) => {
+                    setTickerInput(e.target.value.toUpperCase())
+                    setShowDropdown(true)
+                  }}
+                  onFocus={() => { if (tickerInput.length >= 1) setShowDropdown(true) }}
+                  onBlur={() => setTimeout(() => setShowDropdown(false), 200)}
+                  placeholder="Enter ticker (e.g. AAPL)"
+                  className="w-full pl-9 pr-8 py-2.5 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent font-mono"
+                  disabled={isPending}
+                  autoComplete="off"
+                />
+                {isSearching && tickerInput.length >= 1 && (
+                  <div className="absolute right-3 top-1/2 -translate-y-1/2">
+                    <Loader2 size={14} className="animate-spin text-gray-400" />
+                  </div>
+                )}
+
+                {/* Autocomplete dropdown */}
+                {showDropdown && tickerInput.length >= 1 && tickerResults.length > 0 && (
+                  <div className="absolute z-50 top-full left-0 right-0 mt-1 bg-white border border-gray-200 rounded-md shadow-lg max-h-60 overflow-y-auto">
+                    {tickerResults.map((t) => (
+                      <button
+                        key={t.ticker}
+                        type="button"
+                        onMouseDown={(e) => e.preventDefault()}
+                        onClick={() => {
+                          setTickerInput(t.ticker)
+                          setShowDropdown(false)
+                        }}
+                        className="w-full text-left px-3 py-2 hover:bg-blue-50 flex items-center gap-2 border-b border-gray-50 last:border-0"
+                      >
+                        <span className="font-mono font-semibold text-sm text-gray-900 min-w-[60px]">
+                          {t.ticker}
+                        </span>
+                        <span className="text-xs text-gray-500 truncate flex-1">
+                          {t.name}
+                        </span>
+                        {t.primary_exchange && (
+                          <span className="text-xs text-gray-400 flex-shrink-0">
+                            {t.primary_exchange}
+                          </span>
+                        )}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+              <button
+                type="submit"
+                disabled={!tickerInput.trim() || isPending}
+                className="flex items-center gap-1.5 bg-blue-600 text-white px-4 py-2.5 rounded-md text-sm font-medium hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap"
+              >
+                {analyzeTicker.isPending ? (
+                  <>
+                    <LoadingSpinner message="" />
+                    Analyzing...
+                  </>
+                ) : (
+                  <>
+                    <Play size={14} />
+                    Analyze
+                  </>
+                )}
+              </button>
+            </form>
+            {analyzeTicker.isError && (
+              <div className="mt-2 bg-red-50 border border-red-200 rounded p-2 text-xs text-red-700">
+                {analyzeTicker.error?.response?.data?.detail || 'Ticker analysis failed'}
+              </div>
+            )}
+            <p className="text-xs text-gray-400 mt-2">Fetches 6 months of daily data and runs AI technical analysis</p>
+          </div>
+
           {/* Upload Area */}
           <div className="bg-white rounded-lg border border-gray-200 p-5">
-            <h3 className="font-medium text-gray-900 mb-3">Upload Chart</h3>
+            <h3 className="font-medium text-gray-900 mb-3">Or Upload Chart</h3>
 
             {!file ? (
               <div
@@ -148,7 +251,7 @@ export default function ChartAnalysis() {
             {/* Analyze Button */}
             <button
               onClick={handleAnalyze}
-              disabled={!file || analyze.isPending}
+              disabled={!file || isPending}
               className="mt-3 w-full flex items-center justify-center gap-2 bg-blue-600 text-white px-4 py-2.5 rounded-md text-sm font-medium hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {analyze.isPending ? (
@@ -224,16 +327,14 @@ export default function ChartAnalysis() {
 
         {/* Right column: Results */}
         <div className="lg:col-span-2">
-          {analyze.isPending && (
-            <div className="bg-blue-50 border border-blue-200 rounded-lg p-8 text-center">
-              <LoadingSpinner message="Claude is analyzing your chart... Identifying patterns, key levels, and trade setups." />
-            </div>
+          {isPending && (
+            <ChartAnalysisLoading ticker={analyzeTicker.isPending ? tickerInput : null} />
           )}
 
-          {currentAnalysis && !analyze.isPending && (
+          {currentAnalysis && !isPending && (
             <div className="space-y-4">
-              {/* Show the chart image if viewing from history */}
-              {selectedId && (
+              {/* Show the chart image if viewing from history (only for image-based analyses) */}
+              {selectedId && currentAnalysis.image_path && (
                 <div className="bg-white rounded-lg border border-gray-200 p-3">
                   <img
                     src={getChartImageUrl(selectedId)}
@@ -246,7 +347,7 @@ export default function ChartAnalysis() {
             </div>
           )}
 
-          {!currentAnalysis && !analyze.isPending && (
+          {!currentAnalysis && !isPending && (
             <EmptyState
               icon={ImagePlus}
               title="Upload a Chart"

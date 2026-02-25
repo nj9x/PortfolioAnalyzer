@@ -115,3 +115,12 @@ export function useTickerHistory(ticker, period) {
     staleTime: 5 * 60 * 1000,
   })
 }
+
+export function useTickerRisk(ticker) {
+  return useQuery({
+    queryKey: ['ticker-risk', ticker],
+    queryFn: () => marketApi.getTickerRisk(ticker),
+    enabled: !!ticker,
+    staleTime: 5 * 60 * 1000,
+  })
+}
