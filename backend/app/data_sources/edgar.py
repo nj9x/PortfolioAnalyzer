@@ -22,6 +22,7 @@ _EFTS_SEARCH = "https://efts.sec.gov/LATEST/search-index"
 
 # In-memory CIK lookup (populated on first call)
 _ticker_to_cik: dict[str, str] = {}
+_ticker_to_name: dict[str, str] = {}
 _cik_load_attempted: bool = False
 
 # Hardcoded CIK map for common tickers — used as fallback when SEC.gov
@@ -107,7 +108,7 @@ def _ensure_cik_map() -> None:
 
     Retries up to 3 times with backoff if the initial load fails.
     """
-    global _ticker_to_cik, _cik_load_attempted
+    global _ticker_to_cik, _ticker_to_name, _cik_load_attempted
     if _ticker_to_cik:
         return
     if _cik_load_attempted:
@@ -124,8 +125,11 @@ def _ensure_cik_map() -> None:
             for entry in data.values():
                 ticker = entry.get("ticker", "").upper()
                 cik = str(entry.get("cik_str", ""))
+                name = entry.get("title", "")
                 if ticker and cik:
                     _ticker_to_cik[ticker] = cik.zfill(10)
+                    if name:
+                        _ticker_to_name[ticker] = name
             logger.info("Loaded SEC CIK map: %d tickers", len(_ticker_to_cik))
             return
         except Exception as e:
@@ -159,6 +163,58 @@ def _get_cik(ticker: str) -> str | None:
     if not _ticker_to_cik:
         _cik_load_attempted = False
     return None
+
+
+def search_tickers(query: str, limit: int = 8) -> list[dict]:
+    """Search for tickers matching a query string.
+
+    Matches against ticker symbols and company names from the SEC CIK map,
+    falling back to the hardcoded map if the full map isn't loaded.
+    """
+    _ensure_cik_map()
+    q = query.upper().strip()
+    if not q:
+        return []
+
+    results: list[dict] = []
+    seen: set[str] = set()
+
+    source = _ticker_to_cik if _ticker_to_cik else _FALLBACK_CIK
+
+    # Pass 1: exact ticker prefix matches (highest priority)
+    for ticker in source:
+        if ticker.startswith(q) and ticker not in seen:
+            seen.add(ticker)
+            results.append({
+                "ticker": ticker,
+                "name": _ticker_to_name.get(ticker, ""),
+            })
+            if len(results) >= limit:
+                return results
+
+    # Pass 2: company name substring matches
+    q_lower = query.lower().strip()
+    for ticker, name in _ticker_to_name.items():
+        if ticker in seen:
+            continue
+        if q_lower in name.lower():
+            seen.add(ticker)
+            results.append({"ticker": ticker, "name": name})
+            if len(results) >= limit:
+                return results
+
+    # Pass 3: fallback map matches (if full map not loaded)
+    if not _ticker_to_cik:
+        for ticker in _FALLBACK_CIK:
+            if ticker in seen:
+                continue
+            if ticker.startswith(q):
+                seen.add(ticker)
+                results.append({"ticker": ticker, "name": ""})
+                if len(results) >= limit:
+                    return results
+
+    return results
 
 
 def fetch_recent_filings(

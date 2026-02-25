@@ -19,6 +19,16 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
+@router.get("/ticker-search")
+def ticker_search(
+    q: str = Query(..., min_length=1, description="Search query for ticker or company name"),
+    limit: int = Query(8, ge=1, le=20),
+):
+    """Return ticker suggestions matching a search query."""
+    results = edgar.search_tickers(q, limit=limit)
+    return {"query": q, "results": results}
+
+
 @router.get("/search")
 def search_filings(
     ticker: str = Query(..., description="Ticker symbol (e.g. AAPL)"),

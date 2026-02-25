@@ -1,5 +1,8 @@
 import api from './client'
 
+export const searchTickerSuggestions = (q) =>
+  api.get('/sec-filings/ticker-search', { params: { q } }).then(r => r.data)
+
 export const searchFilings = (ticker, filingTypes = '10-K,10-Q,8-K', limit = 20) =>
   api.get('/sec-filings/search', { params: { ticker, filing_types: filingTypes, limit } }).then(r => r.data)
 

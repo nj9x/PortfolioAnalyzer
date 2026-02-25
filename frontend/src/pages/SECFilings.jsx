@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
 import { useQuery, useMutation } from '@tanstack/react-query'
-import { searchFilings, getFilingContent, aiSearchFiling } from '../api/secFilings'
+import { searchFilings, getFilingContent, aiSearchFiling, searchTickerSuggestions } from '../api/secFilings'
 import EmptyState from '../components/common/EmptyState'
 import {
   FileText, Search, Loader2, ExternalLink, Sparkles, ChevronRight,
@@ -32,8 +32,42 @@ export default function SECFilings() {
   const [aiQuery, setAiQuery] = useState('')
   const [aiResults, setAiResults] = useState(null)
   const [showAiPanel, setShowAiPanel] = useState(false)
+  const [showSuggestions, setShowSuggestions] = useState(false)
+  const [highlightedIndex, setHighlightedIndex] = useState(-1)
+  const [debouncedQuery, setDebouncedQuery] = useState('')
   const contentRef = useRef(null)
   const searchInputRef = useRef(null)
+  const tickerInputRef = useRef(null)
+  const suggestionsRef = useRef(null)
+
+  // Debounce ticker input for autocomplete
+  useEffect(() => {
+    const timer = setTimeout(() => setDebouncedQuery(ticker.trim()), 200)
+    return () => clearTimeout(timer)
+  }, [ticker])
+
+  // Fetch ticker suggestions
+  const { data: suggestionsData } = useQuery({
+    queryKey: ['ticker-suggestions', debouncedQuery],
+    queryFn: () => searchTickerSuggestions(debouncedQuery),
+    enabled: debouncedQuery.length >= 1 && showSuggestions,
+    staleTime: 5 * 60 * 1000,
+  })
+  const suggestions = suggestionsData?.results || []
+
+  // Close dropdown on outside click
+  useEffect(() => {
+    const handler = (e) => {
+      if (
+        suggestionsRef.current && !suggestionsRef.current.contains(e.target) &&
+        tickerInputRef.current && !tickerInputRef.current.contains(e.target)
+      ) {
+        setShowSuggestions(false)
+      }
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [])
 
   // Fetch filings list
   const {
@@ -73,9 +107,36 @@ export default function SECFilings() {
     },
   })
 
+  const selectSuggestion = (t) => {
+    setTicker(t)
+    setShowSuggestions(false)
+    setHighlightedIndex(-1)
+    setSubmittedTicker(t)
+    setSelectedFiling(null)
+    setAiResults(null)
+    setShowAiPanel(false)
+  }
+
+  const handleTickerKeyDown = (e) => {
+    if (!showSuggestions || suggestions.length === 0) return
+    if (e.key === 'ArrowDown') {
+      e.preventDefault()
+      setHighlightedIndex((i) => (i < suggestions.length - 1 ? i + 1 : 0))
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault()
+      setHighlightedIndex((i) => (i > 0 ? i - 1 : suggestions.length - 1))
+    } else if (e.key === 'Enter' && highlightedIndex >= 0) {
+      e.preventDefault()
+      selectSuggestion(suggestions[highlightedIndex].ticker)
+    } else if (e.key === 'Escape') {
+      setShowSuggestions(false)
+    }
+  }
+
   const handleSearch = (e) => {
     e.preventDefault()
     if (!ticker.trim()) return
+    setShowSuggestions(false)
     setSubmittedTicker(ticker.trim().toUpperCase())
     setSelectedFiling(null)
     setAiResults(null)
@@ -133,14 +194,51 @@ export default function SECFilings() {
       <div className="flex items-center gap-3 flex-shrink-0">
         <form onSubmit={handleSearch} className="flex gap-2 flex-1 max-w-md">
           <div className="relative flex-1">
-            <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+            <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 z-10" />
             <input
+              ref={tickerInputRef}
               type="text"
               value={ticker}
-              onChange={(e) => setTicker(e.target.value.toUpperCase())}
-              placeholder="Enter ticker (e.g. AAPL)"
+              onChange={(e) => {
+                setTicker(e.target.value.toUpperCase())
+                setShowSuggestions(true)
+                setHighlightedIndex(-1)
+              }}
+              onFocus={() => { if (ticker.trim()) setShowSuggestions(true) }}
+              onKeyDown={handleTickerKeyDown}
+              placeholder="Search company or ticker..."
               className="w-full pl-9 pr-3 py-2.5 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent font-mono"
+              autoComplete="off"
             />
+            {/* Autocomplete dropdown */}
+            {showSuggestions && suggestions.length > 0 && (
+              <div
+                ref={suggestionsRef}
+                className="absolute z-50 top-full left-0 right-0 mt-1 bg-white border border-gray-200 rounded-lg shadow-lg overflow-hidden max-h-72 overflow-y-auto"
+              >
+                {suggestions.map((s, i) => (
+                  <button
+                    key={s.ticker}
+                    type="button"
+                    onMouseDown={(e) => {
+                      e.preventDefault()
+                      selectSuggestion(s.ticker)
+                    }}
+                    className={clsx(
+                      'w-full text-left px-3 py-2.5 flex items-center gap-3 text-sm transition-colors',
+                      i === highlightedIndex
+                        ? 'bg-blue-50 text-blue-900'
+                        : 'hover:bg-gray-50 text-gray-800'
+                    )}
+                  >
+                    <span className="font-mono font-semibold text-blue-700 w-16 shrink-0">{s.ticker}</span>
+                    {s.name && (
+                      <span className="text-gray-500 truncate text-xs">{s.name}</span>
+                    )}
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
           <button
             type="submit"
