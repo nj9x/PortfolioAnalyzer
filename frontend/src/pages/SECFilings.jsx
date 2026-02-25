@@ -120,7 +120,7 @@ export default function SECFilings() {
   const companyName = filingsData?.company_name || ''
 
   return (
-    <div className="space-y-4 h-[calc(100vh-7rem)]  flex flex-col">
+    <div className="space-y-4 h-[calc(100vh-7rem)] flex flex-col">
       {/* Header */}
       <div className="flex items-center justify-between flex-shrink-0">
         <h2 className="text-xl font-semibold text-gray-900 flex items-center gap-2">

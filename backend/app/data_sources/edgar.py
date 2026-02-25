@@ -24,6 +24,40 @@ _EFTS_SEARCH = "https://efts.sec.gov/LATEST/search-index"
 _ticker_to_cik: dict[str, str] = {}
 _cik_load_attempted: bool = False
 
+# Hardcoded CIK map for common tickers — used as fallback when SEC.gov
+# blocks the full ticker map download (e.g. from certain cloud IPs).
+_FALLBACK_CIK: dict[str, str] = {
+    "AAPL": "0000320193", "MSFT": "0000789019", "GOOGL": "0001652044",
+    "GOOG": "0001652044", "AMZN": "0001018724", "NVDA": "0001045810",
+    "META": "0001326801", "TSLA": "0001318605", "BRK-B": "0001067983",
+    "BRK.B": "0001067983", "JPM": "0000019617", "V": "0001403161",
+    "JNJ": "0000200406", "UNH": "0000731766", "XOM": "0000034088",
+    "WMT": "0000104169", "MA": "0001141391", "PG": "0000080424",
+    "HD": "0000354950", "CVX": "0000093410", "LLY": "0000059478",
+    "MRK": "0000310158", "ABBV": "0001551152", "PEP": "0000077476",
+    "KO": "0000021344", "AVGO": "0001649338", "COST": "0000909832",
+    "TMO": "0000097745", "MCD": "0000063908", "CSCO": "0000858877",
+    "ABT": "0000001800", "ACN": "0001281761", "DHR": "0000313616",
+    "ADBE": "0000796343", "NFLX": "0001065280", "CRM": "0001108524",
+    "AMD": "0000002488", "INTC": "0000050863", "ORCL": "0001341439",
+    "DIS": "0001744489", "NKE": "0000320187", "CMCSA": "0001166691",
+    "VZ": "0000732712", "T": "0000732717", "PFE": "0000078003",
+    "BAC": "0000070858", "WFC": "0000072971", "C": "0000831001",
+    "GS": "0000886982", "MS": "0000895421", "SCHW": "0000316709",
+    "PYPL": "0001633917", "SQ": "0001512673", "SHOP": "0001594805",
+    "UBER": "0001543151", "ABNB": "0001559720", "COIN": "0001679788",
+    "PLTR": "0001321655", "SNOW": "0001640147", "NET": "0001477333",
+    "CRWD": "0001535527", "ZS": "0001713683", "BA": "0000012927",
+    "CAT": "0000018230", "GE": "0000040545", "MMM": "0000066740",
+    "IBM": "0000051143", "QCOM": "0000804328", "TXN": "0000097476",
+    "AMAT": "0000006951", "LRCX": "0000707549", "MU": "0000723125",
+    "NOW": "0001373715", "PANW": "0001327567", "SPOT": "0001639920",
+    "SQ": "0001512673", "ROKU": "0001428439", "DDOG": "0001561550",
+    "ZM": "0001585521", "DOCU": "0001261654", "SPY": "0000884394",
+    "QQQ": "0001067839", "IWM": "0000728889", "VOO": "0001023581",
+    "VTI": "0000862084", "BND": "0001014064",
+}
+
 
 class _HTMLTextExtractor(HTMLParser):
     """Simple HTML-to-text converter for SEC filing documents."""
@@ -108,14 +142,23 @@ def _ensure_cik_map() -> None:
 def _get_cik(ticker: str) -> str | None:
     """Resolve ticker symbol to zero-padded 10-digit CIK."""
     _ensure_cik_map()
-    cik = _ticker_to_cik.get(ticker.upper())
-    if not cik:
-        # Reset the attempt flag so next request retries the CIK map load
-        # (in case the initial failure was transient)
-        global _cik_load_attempted
-        if not _ticker_to_cik:
-            _cik_load_attempted = False
-    return cik
+    t = ticker.upper()
+    cik = _ticker_to_cik.get(t)
+    if cik:
+        return cik
+
+    # Fallback: use hardcoded map for common tickers
+    cik = _FALLBACK_CIK.get(t)
+    if cik:
+        logger.info("Using hardcoded CIK for %s: %s", t, cik)
+        return cik
+
+    # Reset the attempt flag so next request retries the CIK map load
+    # (in case the initial failure was transient)
+    global _cik_load_attempted
+    if not _ticker_to_cik:
+        _cik_load_attempted = False
+    return None
 
 
 def fetch_recent_filings(
