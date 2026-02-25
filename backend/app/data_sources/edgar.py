@@ -415,9 +415,12 @@ def fetch_filing_content(accession: str, cik: str, primary_doc: str = "") -> dic
     accession_clean = accession.replace("-", "")
 
     try:
-        # If primary_doc is the full-submission .txt file, ignore it and
-        # discover the actual HTML document from the filing index instead.
-        if primary_doc and primary_doc.endswith(".txt"):
+        # If primary_doc is the full-submission .txt file or the filing
+        # index page, ignore it and discover the actual document instead.
+        if primary_doc and (
+            primary_doc.endswith(".txt")
+            or "-index." in primary_doc.lower()
+        ):
             primary_doc = ""
 
         # If no primary doc specified, get the filing index
@@ -439,6 +442,8 @@ def fetch_filing_content(accession: str, cik: str, primary_doc: str = "") -> dic
                 if not name.endswith((".htm", ".html")):
                     continue
                 if name.startswith("R") or name.startswith("r"):
+                    continue
+                if "-index." in name.lower():
                     continue
                 htm_candidates.append((name, size))
             if htm_candidates:
@@ -470,19 +475,33 @@ def fetch_filing_content(accession: str, cik: str, primary_doc: str = "") -> dic
         content_type = resp.headers.get("content-type", "")
         raw_html = resp.text
 
-        # Strip SEC SGML wrapper if present (e.g. <SEC-DOCUMENT>...<SEC-HEADER>...)
-        # The actual filing HTML starts at the first <html or <!DOCTYPE tag.
-        if "<SEC-DOCUMENT>" in raw_html[:500] or "<SEC-HEADER>" in raw_html[:500]:
-            html_start = re.search(r"(?i)<(!DOCTYPE\s+html|html)", raw_html)
-            if html_start:
-                raw_html = raw_html[html_start.start():]
-                # Also strip any trailing SGML closing tags
-                sgml_end = re.search(r"</SEC-DOCUMENT>", raw_html, re.IGNORECASE)
-                if sgml_end:
-                    raw_html = raw_html[:sgml_end.start()]
+        # Strip SEC SGML wrapper if present.  Full submission text files
+        # contain <SEC-DOCUMENT>, <SEC-HEADER>, and embed the actual HTML
+        # inside <DOCUMENT><TEXT>...</TEXT></DOCUMENT> blocks.
+        stripped = raw_html.lstrip()
+        if (stripped[:100].startswith("<SEC-DOCUMENT>")
+                or stripped[:100].startswith("<SEC-HEADER>")
+                or "ACCESSION NUMBER:" in raw_html[:2000]):
+            # Try to extract from the first <TEXT>...</TEXT> block
+            text_start = raw_html.find("<TEXT>")
+            if text_start >= 0:
+                text_start += len("<TEXT>")
+                text_end = raw_html.find("</TEXT>", text_start)
+                if text_end >= 0:
+                    raw_html = raw_html[text_start:text_end].strip()
+                else:
+                    raw_html = raw_html[text_start:].strip()
+            else:
+                # Fallback: jump to the first <html tag
+                html_start = raw_html.lower().find("<html")
+                if html_start >= 0:
+                    raw_html = raw_html[html_start:]
+                    html_end = raw_html.lower().rfind("</html>")
+                    if html_end > 0:
+                        raw_html = raw_html[:html_end + 7]
 
         # Convert HTML to plain text
-        if "html" in content_type or raw_html.strip().startswith(("<", "<!DOCTYPE")):
+        if "html" in content_type or raw_html.strip()[:10].startswith(("<", "<!DOCTYPE")):
             parser = _HTMLTextExtractor()
             parser.feed(raw_html)
             text = parser.get_text()

@@ -88,7 +88,7 @@ export default function SECFilings() {
     data: contentData,
     isLoading: contentLoading,
   } = useQuery({
-    queryKey: ['sec-filing-content', selectedFiling?.accession],
+    queryKey: ['sec-filing-content', selectedFiling?.accession, selectedFiling?.primary_doc],
     queryFn: () => getFilingContent(
       selectedFiling.accession,
       filingsData?.cik || '',
