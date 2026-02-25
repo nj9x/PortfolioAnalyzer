@@ -27,28 +27,46 @@ const TABS = [
 
 /**
  * Safely extract the summary text from an analysis object.
- * Handles the case where the backend stored raw JSON as the summary
- * (e.g. when the response parser fallback was triggered).
+ * Handles cases where the backend stored raw/truncated JSON as the summary
+ * (e.g. when the response parser fallback was triggered or JSON was truncated).
  */
 function extractSummary(summary) {
   if (!summary) return ''
   const trimmed = summary.trim()
-  // If it looks like JSON (starts with { or ```), try to parse and extract
-  if (trimmed.startsWith('{') || trimmed.startsWith('```')) {
-    try {
-      const cleaned = trimmed
-        .replace(/^```(?:json|JSON)?\s*\n?/, '')
-        .replace(/\n?\s*```\s*$/, '')
-        .trim()
-      const parsed = JSON.parse(cleaned)
-      if (parsed.summary && typeof parsed.summary === 'string') {
-        return parsed.summary
-      }
-    } catch {
-      // Not valid JSON — fall through
+
+  // Check if it looks like JSON or markdown-fenced JSON
+  const looksLikeJson = trimmed.startsWith('{') || trimmed.startsWith('```')
+  if (!looksLikeJson) return summary
+
+  // Strip markdown fences
+  const cleaned = trimmed
+    .replace(/^```(?:json|JSON)?\s*\n?/, '')
+    .replace(/\n?\s*```\s*$/, '')
+    .trim()
+
+  // Strategy 1: Try full JSON parse
+  try {
+    const parsed = JSON.parse(cleaned)
+    if (parsed.summary && typeof parsed.summary === 'string') {
+      return parsed.summary
     }
+  } catch {
+    // JSON is likely truncated — try regex extraction
   }
-  return summary
+
+  // Strategy 2: Regex extract "summary": "..." from raw/truncated JSON
+  // This handles the common case where JSON was cut off mid-stream
+  const match = cleaned.match(/"summary"\s*:\s*"((?:[^"\\]|\\[\s\S])*)"/)
+  if (match) {
+    return match[1]
+      .replace(/\\"/g, '"')
+      .replace(/\\n/g, '\n')
+      .replace(/\\t/g, '\t')
+      .replace(/\\\\/g, '\\')
+  }
+
+  // Strategy 3: Nothing worked — don't show raw JSON, show a fallback message
+  return 'Analysis completed. Re-run the analysis for a detailed summary.'
 }
 
 function AnalysisSummaryCard({ analysis }) {
