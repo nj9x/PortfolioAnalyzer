@@ -79,7 +79,10 @@ export function useVoiceCommand() {
   const [error, setError] = useState(null)
   const recognitionRef = useRef(null)
   const timeoutRef = useRef(null)
+  const autoDismissRef = useRef(null)
   const transcriptRef = useRef('')
+  const retryCountRef = useRef(0)
+  const maxRetries = 1   // auto-retry once on no-speech
 
   const isSupported = typeof window !== 'undefined' &&
     ('SpeechRecognition' in window || 'webkitSpeechRecognition' in window)
@@ -90,17 +93,29 @@ export function useVoiceCommand() {
     setResult(null)
     setError(null)
     transcriptRef.current = ''
+    retryCountRef.current = 0
     if (timeoutRef.current) clearTimeout(timeoutRef.current)
+    if (autoDismissRef.current) clearTimeout(autoDismissRef.current)
     if (recognitionRef.current) {
       try { recognitionRef.current.abort() } catch (e) { /* ignore */ }
       recognitionRef.current = null
     }
   }, [])
 
+  // Auto-dismiss errors after 4 seconds
+  const showError = useCallback((msg) => {
+    setError(msg)
+    setStatus('error')
+    if (autoDismissRef.current) clearTimeout(autoDismissRef.current)
+    autoDismissRef.current = setTimeout(() => {
+      setStatus((s) => s === 'error' ? 'idle' : s)
+      setError((e) => e === msg ? null : e)
+    }, 4000)
+  }, [])
+
   const startListening = useCallback(() => {
     if (!isSupported) {
-      setError('Speech recognition is not supported in this browser. Try Chrome.')
-      setStatus('error')
+      showError('Speech recognition is not supported in this browser. Try Chrome.')
       return
     }
 
@@ -116,7 +131,7 @@ export function useVoiceCommand() {
 
     recognition.lang = 'en-US'
     recognition.interimResults = true
-    recognition.continuous = false
+    recognition.continuous = true      // keep listening through pauses
     recognition.maxAlternatives = 1
 
     recognition.onresult = (event) => {
@@ -132,11 +147,33 @@ export function useVoiceCommand() {
       const finalTranscript = transcriptRef.current.trim()
 
       if (!finalTranscript) {
-        setError('No speech detected. Please try again.')
-        setStatus('error')
+        // Auto-retry once before showing error
+        if (retryCountRef.current < maxRetries) {
+          retryCountRef.current++
+          setTranscript('')
+          transcriptRef.current = ''
+          try {
+            const retry = new SpeechRecognition()
+            recognitionRef.current = retry
+            retry.lang = 'en-US'
+            retry.interimResults = true
+            retry.continuous = true
+            retry.maxAlternatives = 1
+            retry.onresult = recognition.onresult
+            retry.onend = recognition.onend
+            retry.onerror = recognition.onerror
+            retry.start()
+            timeoutRef.current = setTimeout(() => {
+              if (recognitionRef.current) recognitionRef.current.stop()
+            }, 15000)
+            return
+          } catch (e) { /* fall through to error */ }
+        }
+        showError('No speech detected. Please try again.')
         return
       }
 
+      retryCountRef.current = 0
       setTranscript(finalTranscript)
       setStatus('processing')
 
@@ -145,8 +182,7 @@ export function useVoiceCommand() {
         setResult(parsed)
         setStatus('done')
       } catch (err) {
-        setError(err?.response?.data?.detail || 'Failed to parse voice command')
-        setStatus('error')
+        showError(err?.response?.data?.detail || 'Failed to parse voice command')
       }
     }
 
@@ -156,26 +192,48 @@ export function useVoiceCommand() {
         setStatus('idle')
         return
       }
+      // On no-speech, auto-retry once before showing error
       if (event.error === 'no-speech') {
-        setError('No speech detected. Please try again.')
+        if (retryCountRef.current < maxRetries) {
+          retryCountRef.current++
+          setTranscript('')
+          transcriptRef.current = ''
+          try {
+            const retry = new SpeechRecognition()
+            recognitionRef.current = retry
+            retry.lang = 'en-US'
+            retry.interimResults = true
+            retry.continuous = true
+            retry.maxAlternatives = 1
+            retry.onresult = recognition.onresult
+            retry.onend = recognition.onend
+            retry.onerror = recognition.onerror
+            retry.start()
+            timeoutRef.current = setTimeout(() => {
+              if (recognitionRef.current) recognitionRef.current.stop()
+            }, 15000)
+            return
+          } catch (e) { /* fall through to error */ }
+        }
+        showError('No speech detected. Please try again.')
       } else if (event.error === 'not-allowed') {
-        setError('Microphone permission denied. Please allow microphone access.')
+        showError('Microphone permission denied. Please allow microphone access.')
       } else {
-        setError(`Speech recognition error: ${event.error}`)
+        showError(`Speech recognition error: ${event.error}`)
       }
-      setStatus('error')
     }
 
     recognition.start()
 
-    // Safety timeout: stop listening after 10 seconds
+    // Safety timeout: stop listening after 15 seconds
     timeoutRef.current = setTimeout(() => {
       if (recognitionRef.current) recognitionRef.current.stop()
-    }, 10000)
-  }, [isSupported])
+    }, 15000)
+  }, [isSupported, showError])
 
   const stopListening = useCallback(() => {
     if (timeoutRef.current) clearTimeout(timeoutRef.current)
+    retryCountRef.current = maxRetries  // prevent retry when user manually stops
     if (recognitionRef.current) recognitionRef.current.stop()
   }, [])
 
@@ -183,6 +241,7 @@ export function useVoiceCommand() {
   useEffect(() => {
     return () => {
       if (timeoutRef.current) clearTimeout(timeoutRef.current)
+      if (autoDismissRef.current) clearTimeout(autoDismissRef.current)
       if (recognitionRef.current) {
         try { recognitionRef.current.abort() } catch (e) { /* ignore */ }
       }
