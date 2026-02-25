@@ -4,7 +4,7 @@ import logging
 from concurrent.futures import ThreadPoolExecutor
 from app.services.cache_service import cache
 from app.config import get_settings
-from app.data_sources import massive, polymarket, news_api, fred
+from app.data_sources import massive, polymarket, news_api, fred, edgar
 from app.data_sources import technical_analysis, fundamentals, options_data
 from app.services import risk_service
 
@@ -153,6 +153,19 @@ def get_portfolio_risk(holdings: list[dict], quotes: dict) -> dict:
     return result
 
 
+def get_sec_filings(tickers: list[str]) -> dict:
+    """Fetch SEC EDGAR filings and financial facts, cached."""
+    settings = get_settings()
+    cache_key = f"sec_filings:{','.join(sorted(tickers))}"
+    cached_data = cache.get(cache_key)
+    if cached_data:
+        return cached_data
+
+    result = edgar.fetch_sec_data(tickers)
+    cache.set(cache_key, result, settings.SEC_FILINGS_CACHE_TTL)
+    return result
+
+
 async def _run_with_timeout(coro_or_future, timeout: float, label: str, default):
     """Run an awaitable with a timeout. Returns default on timeout or error."""
     try:
@@ -203,12 +216,13 @@ async def get_full_market_context(tickers: list[str], holdings: list[dict] | Non
     fundas = {}
     options = {}
     risk = {}
+    sec_filings = {}
 
     if remaining > 15:
-        logger.info("Phase 2: %.0fs remaining — fetching technicals, fundamentals...", remaining)
+        logger.info("Phase 2: %.0fs remaining — fetching technicals, fundamentals, SEC filings...", remaining)
         phase2_timeout = min(remaining - 5, 60)  # Leave 5s buffer
 
-        technicals, fundas, options = await asyncio.gather(
+        technicals, fundas, options, sec_filings = await asyncio.gather(
             _run_with_timeout(
                 loop.run_in_executor(_data_executor, get_technical_indicators, tickers),
                 phase2_timeout, "Technicals", {}
@@ -220,6 +234,10 @@ async def get_full_market_context(tickers: list[str], holdings: list[dict] | Non
             _run_with_timeout(
                 loop.run_in_executor(_data_executor, get_options_data, tickers),
                 phase2_timeout, "Options", {}
+            ),
+            _run_with_timeout(
+                loop.run_in_executor(_data_executor, get_sec_filings, tickers),
+                phase2_timeout, "SEC Filings", {}
             ),
         )
 
@@ -248,4 +266,5 @@ async def get_full_market_context(tickers: list[str], holdings: list[dict] | Non
         "fundamentals": fundas,
         "options": options,
         "risk": risk,
+        "sec_filings": sec_filings,
     }

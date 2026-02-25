@@ -133,6 +133,18 @@ def get_portfolio_risk(
     return {"risk": data}
 
 
+@router.get("/sec-filings")
+def get_sec_filings(
+    portfolio_id: int | None = Query(None),
+    tickers: str | None = Query(None),
+    db: Session = Depends(get_db),
+):
+    """Get SEC EDGAR filings and XBRL financial facts for tickers."""
+    ticker_list = _resolve_tickers(portfolio_id, tickers, db)
+    data = market_data_service.get_sec_filings(ticker_list)
+    return {"sec_filings": data}
+
+
 @router.get("/history")
 def get_history(
     ticker: str = Query(..., description="Single ticker symbol"),
