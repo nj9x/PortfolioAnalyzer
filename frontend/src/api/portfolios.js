@@ -33,3 +33,6 @@ export const uploadPortfolio = (name, description, file, clientName, category) =
 
 export const getDashboardOverview = () =>
   api.get('/portfolios/dashboard-overview').then(r => r.data)
+
+export const getPortfolioAnalytics = (id) =>
+  api.get(`/portfolios/${id}/analytics`).then(r => r.data)

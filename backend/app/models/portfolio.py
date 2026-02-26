@@ -12,6 +12,10 @@ class Portfolio(Base):
     description = Column(Text, nullable=True)
     client_name = Column(String(255), nullable=True)
     category = Column(String(20), nullable=True, default="balanced")  # conservative | balanced | high-growth
+    benchmark = Column(String(50), nullable=True, default="SPY")
+    target_allocation = Column(Text, nullable=True)  # JSON: '{"equity":60,"fixed_income":30,"cash":10}'
+    risk_tolerance = Column(String(20), nullable=True, default="moderate")  # conservative | moderate | aggressive
+    cash_balance = Column(Float, nullable=True, default=0.0)
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
     updated_at = Column(
         DateTime,

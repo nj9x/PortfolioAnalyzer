@@ -10,7 +10,7 @@ from app.schemas.portfolio import (
     HoldingUpdate,
     HoldingResponse,
 )
-from app.services import portfolio_service
+from app.services import portfolio_service, market_data_service, portfolio_analytics_service
 
 router = APIRouter()
 
@@ -35,6 +35,22 @@ def create_portfolio(data: PortfolioCreate, db: Session = Depends(get_db)):
 def dashboard_overview(db: Session = Depends(get_db)):
     """Get all portfolios with performance metrics and alerts for the dashboard."""
     return portfolio_service.get_dashboard_overview(db)
+
+
+@router.get("/{portfolio_id}/analytics")
+def get_portfolio_analytics(portfolio_id: int, db: Session = Depends(get_db)):
+    """Get comprehensive analytics for a single portfolio (P&L, risk, benchmark, attribution)."""
+    portfolio = portfolio_service.get_portfolio(db, portfolio_id)
+    if not portfolio:
+        raise HTTPException(status_code=404, detail="Portfolio not found")
+
+    tickers = [h.ticker for h in portfolio.holdings]
+    quotes = market_data_service.get_quotes_for_tickers(tickers) if tickers else {}
+    holdings = [
+        {"ticker": h.ticker, "shares": h.shares, "cost_basis": h.cost_basis, "asset_type": h.asset_type}
+        for h in portfolio.holdings
+    ]
+    return portfolio_analytics_service.compute_portfolio_analytics(portfolio, holdings, quotes)
 
 
 @router.get("/{portfolio_id}", response_model=PortfolioResponse)
@@ -89,6 +105,9 @@ def upload_portfolio(
     description: str = Form(None),
     client_name: str = Form(None),
     category: str = Form("balanced"),
+    benchmark: str = Form("SPY"),
+    risk_tolerance: str = Form("moderate"),
+    cash_balance: float = Form(0.0),
     file: UploadFile = File(...),
     db: Session = Depends(get_db),
 ):
@@ -106,6 +125,9 @@ def upload_portfolio(
             description=description,
             client_name=client_name,
             category=category,
+            benchmark=benchmark,
+            risk_tolerance=risk_tolerance,
+            cash_balance=cash_balance,
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))

@@ -1,3 +1,4 @@
+import json
 import logging
 from typing import BinaryIO
 from sqlalchemy.orm import Session
@@ -22,6 +23,10 @@ def create_portfolio(db: Session, data: PortfolioCreate) -> Portfolio:
         description=data.description,
         client_name=data.client_name,
         category=data.category or "balanced",
+        benchmark=data.benchmark or "SPY",
+        target_allocation=json.dumps(data.target_allocation) if data.target_allocation else None,
+        risk_tolerance=data.risk_tolerance or "moderate",
+        cash_balance=data.cash_balance or 0.0,
     )
     db.add(portfolio)
     db.commit()
@@ -41,6 +46,14 @@ def update_portfolio(db: Session, portfolio_id: int, data: PortfolioUpdate) -> P
         portfolio.client_name = data.client_name
     if data.category is not None:
         portfolio.category = data.category
+    if data.benchmark is not None:
+        portfolio.benchmark = data.benchmark
+    if data.target_allocation is not None:
+        portfolio.target_allocation = json.dumps(data.target_allocation)
+    if data.risk_tolerance is not None:
+        portfolio.risk_tolerance = data.risk_tolerance
+    if data.cash_balance is not None:
+        portfolio.cash_balance = data.cash_balance
     db.commit()
     db.refresh(portfolio)
     return portfolio
@@ -109,6 +122,9 @@ def import_portfolio_from_file(
     description: str | None = None,
     client_name: str | None = None,
     category: str | None = None,
+    benchmark: str | None = None,
+    risk_tolerance: str | None = None,
+    cash_balance: float | None = None,
 ) -> Portfolio:
     """Parse an uploaded file and create a portfolio with all holdings."""
     holdings_data = parse_portfolio_file(file, filename)
@@ -117,6 +133,9 @@ def import_portfolio_from_file(
         description=description,
         client_name=client_name,
         category=category or "balanced",
+        benchmark=benchmark or "SPY",
+        risk_tolerance=risk_tolerance or "moderate",
+        cash_balance=cash_balance or 0.0,
     )
     db.add(portfolio)
     db.flush()
@@ -176,6 +195,7 @@ def get_dashboard_overview(db: Session) -> dict:
     results = []
     categories = {"conservative": [], "balanced": [], "high-growth": []}
     total_aum = 0.0
+    total_daily_pnl = 0.0
     alert_counts = {"trim_opportunity": 0, "entry_point": 0, "review_needed": 0}
 
     for p in portfolios:
@@ -183,11 +203,13 @@ def get_dashboard_overview(db: Session) -> dict:
         portfolio_value = 0.0
         portfolio_cost = 0.0
         weighted_day_change = 0.0
+        daily_pnl_dollar = 0.0
 
         for h in p.holdings:
             q = quotes.get(h.ticker, {})
             price = q.get("current_price")
             day_pct = q.get("day_change_pct")
+            day_change_dollar = q.get("day_change")
 
             market_val = (h.shares * price) if price else 0.0
             gain_pct = None
@@ -199,6 +221,8 @@ def get_dashboard_overview(db: Session) -> dict:
             portfolio_cost += cost_total
             if day_pct and market_val:
                 weighted_day_change += day_pct * market_val
+            if day_change_dollar and h.shares:
+                daily_pnl_dollar += day_change_dollar * h.shares
 
             # Holding-level alerts
             alerts = []
@@ -258,6 +282,8 @@ def get_dashboard_overview(db: Session) -> dict:
 
         all_alerts = [a for ho in holdings_overview for a in ho["alerts"]]
 
+        daily_pnl_pct = round((daily_pnl_dollar / (portfolio_value - daily_pnl_dollar)) * 100, 2) if portfolio_value > abs(daily_pnl_dollar) else 0.0
+
         cat = p.category or "balanced"
         overview = {
             "id": p.id,
@@ -270,6 +296,8 @@ def get_dashboard_overview(db: Session) -> dict:
             "total_cost": round(portfolio_cost, 2),
             "total_return_pct": round(total_return_pct, 2) if total_return_pct is not None else None,
             "day_change_pct": round(avg_day_change, 2) if avg_day_change is not None else None,
+            "daily_pnl_dollar": round(daily_pnl_dollar, 2),
+            "daily_pnl_pct": daily_pnl_pct,
             "is_underperforming": is_underperforming,
             "underperformance_reason": f"Portfolio down {abs(total_return_pct):.1f}%" if is_underperforming else None,
             "holdings": holdings_overview,
@@ -277,13 +305,19 @@ def get_dashboard_overview(db: Session) -> dict:
         }
         results.append(overview)
         total_aum += portfolio_value
+        total_daily_pnl += daily_pnl_dollar
 
         if cat in categories:
             categories[cat].append(p.id)
+
+    total_daily_pnl_pct = round((total_daily_pnl / (total_aum - total_daily_pnl)) * 100, 2) if total_aum > abs(total_daily_pnl) else 0.0
 
     return {
         "portfolios": results,
         "categories": categories,
         "total_aum": round(total_aum, 2),
+        "total_daily_pnl_dollar": round(total_daily_pnl, 2),
+        "total_daily_pnl_pct": total_daily_pnl_pct,
+        "portfolio_count": len(portfolios),
         "alert_summary": alert_counts,
     }

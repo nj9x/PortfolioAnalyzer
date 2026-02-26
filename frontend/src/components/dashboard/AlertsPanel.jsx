@@ -33,7 +33,7 @@ const ALERT_CONFIG = {
 }
 
 export default function AlertsPanel({ alerts }) {
-  const [expanded, setExpanded] = useState(true)
+  const [expanded, setExpanded] = useState(false)
 
   if (!alerts || alerts.length === 0) return null
 
@@ -49,7 +49,7 @@ export default function AlertsPanel({ alerts }) {
     .filter(t => grouped[t]?.length > 0)
 
   return (
-    <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+    <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
       {/* Header */}
       <button
         type="button"
@@ -68,41 +68,40 @@ export default function AlertsPanel({ alerts }) {
 
       {/* Alert groups */}
       {expanded && (
-        <div className="px-5 pb-4 grid grid-cols-1 lg:grid-cols-3 gap-4">
+        <div className="px-4 pb-3 grid grid-cols-1 lg:grid-cols-3 gap-3">
           {orderedTypes.map((type) => {
             const config = ALERT_CONFIG[type]
             const items = grouped[type]
             const Icon = config.icon
 
             return (
-              <div key={type} className={`rounded-lg border ${config.border} ${config.bg} p-3`}>
-                <div className="flex items-center gap-2 mb-2">
-                  <Icon size={14} className={config.iconColor} />
-                  <span className={`text-xs font-bold ${config.iconColor}`}>{config.label}</span>
+              <div key={type} className={`rounded-lg border ${config.border} ${config.bg} p-2.5`}>
+                <div className="flex items-center gap-1.5 mb-1.5">
+                  <Icon size={12} className={config.iconColor} />
+                  <span className={`text-[11px] font-bold ${config.iconColor}`}>{config.label}</span>
                   <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ${config.badge}`}>
                     {items.length}
                   </span>
                 </div>
-                <p className="text-[10px] text-gray-500 mb-2">{config.description}</p>
-                <div className="space-y-1.5">
+                <div className="space-y-1">
                   {items.map((a, i) => (
-                    <div key={i} className="bg-white/80 rounded-lg px-2.5 py-2 text-xs">
-                      <div className="flex items-center justify-between">
+                    <div key={i} className="bg-white/80 rounded px-2 py-1 text-xs flex items-center justify-between">
+                      <div className="min-w-0">
                         <span className="font-mono font-bold text-gray-800">{a.ticker}</span>
-                        {a.gain_loss_pct != null && (
-                          <span className={clsx(
-                            'font-semibold tabular-nums',
-                            a.gain_loss_pct > 0 ? 'text-green-600' :
-                            a.gain_loss_pct < 0 ? 'text-red-600' : 'text-gray-500'
-                          )}>
-                            {a.gain_loss_pct >= 0 ? '+' : ''}{a.gain_loss_pct.toFixed(1)}%
+                        {a.portfolioName && (
+                          <span className="text-[10px] text-gray-400 ml-1.5">
+                            {a.clientName ? `${a.clientName}` : a.portfolioName}
                           </span>
                         )}
                       </div>
-                      {a.portfolioName && (
-                        <p className="text-[10px] text-gray-500 mt-0.5">
-                          {a.clientName ? `${a.clientName} — ` : ''}{a.portfolioName}
-                        </p>
+                      {a.gain_loss_pct != null && (
+                        <span className={clsx(
+                          'font-semibold tabular-nums text-[11px] shrink-0 ml-2',
+                          a.gain_loss_pct > 0 ? 'text-green-600' :
+                          a.gain_loss_pct < 0 ? 'text-red-600' : 'text-gray-500'
+                        )}>
+                          {a.gain_loss_pct >= 0 ? '+' : ''}{a.gain_loss_pct.toFixed(1)}%
+                        </span>
                       )}
                     </div>
                   ))}

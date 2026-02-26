@@ -26,6 +26,9 @@ export default function PortfolioManager() {
   const [newName, setNewName] = useState('')
   const [clientName, setClientName] = useState('')
   const [category, setCategory] = useState('balanced')
+  const [benchmark, setBenchmark] = useState('SPY')
+  const [riskTolerance, setRiskTolerance] = useState('moderate')
+  const [cashBalance, setCashBalance] = useState('')
 
   const handleCreate = (e) => {
     e.preventDefault()
@@ -35,6 +38,9 @@ export default function PortfolioManager() {
         name: newName.trim(),
         client_name: clientName.trim() || null,
         category,
+        benchmark: benchmark || 'SPY',
+        risk_tolerance: riskTolerance,
+        cash_balance: parseFloat(cashBalance) || 0,
       },
       {
         onSuccess: (p) => {
@@ -43,6 +49,9 @@ export default function PortfolioManager() {
           setNewName('')
           setClientName('')
           setCategory('balanced')
+          setBenchmark('SPY')
+          setRiskTolerance('moderate')
+          setCashBalance('')
         },
       }
     )
@@ -122,6 +131,45 @@ export default function PortfolioManager() {
                   <option value="balanced">Balanced</option>
                   <option value="high-growth">High Growth</option>
                 </select>
+              </div>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+              <div>
+                <label className="block text-xs font-medium text-gray-500 mb-1">Benchmark</label>
+                <select
+                  value={benchmark}
+                  onChange={(e) => setBenchmark(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm bg-white"
+                >
+                  <option value="SPY">S&P 500 (SPY)</option>
+                  <option value="QQQ">NASDAQ 100 (QQQ)</option>
+                  <option value="DIA">Dow Jones (DIA)</option>
+                  <option value="IWM">Russell 2000 (IWM)</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-500 mb-1">Risk Tolerance</label>
+                <select
+                  value={riskTolerance}
+                  onChange={(e) => setRiskTolerance(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm bg-white"
+                >
+                  <option value="conservative">Conservative</option>
+                  <option value="moderate">Moderate</option>
+                  <option value="aggressive">Aggressive</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-500 mb-1">Cash Balance ($)</label>
+                <input
+                  type="number"
+                  value={cashBalance}
+                  onChange={(e) => setCashBalance(e.target.value)}
+                  placeholder="0.00"
+                  min="0"
+                  step="0.01"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm"
+                />
               </div>
             </div>
             <div className="flex gap-3">

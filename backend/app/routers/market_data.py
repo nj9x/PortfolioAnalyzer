@@ -1,5 +1,6 @@
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import Response
 from sqlalchemy.orm import Session
 from app.database import get_db
 from app.config import get_settings
@@ -218,3 +219,30 @@ def debug_api():
         result["error"] = str(e)
 
     return result
+
+
+@router.get("/logo")
+def get_logo(ticker: str = Query(..., description="Ticker symbol")):
+    """Proxy company icon from Polygon branding API (hides the API key)."""
+    from app.data_sources.massive import fetch_ticker_overview
+
+    ticker = ticker.strip().upper()
+    overview = fetch_ticker_overview(ticker)
+    icon_url = overview.get("icon_url")
+    if not icon_url:
+        raise HTTPException(status_code=404, detail="No logo available")
+
+    # Polygon branding URLs require apiKey
+    key = get_settings().MASSIVE_API_KEY
+    try:
+        resp = httpx.get(icon_url, params={"apiKey": key}, timeout=10, follow_redirects=True)
+        if resp.status_code != 200:
+            raise HTTPException(status_code=502, detail="Failed to fetch logo")
+        content_type = resp.headers.get("content-type", "image/png")
+        return Response(
+            content=resp.content,
+            media_type=content_type,
+            headers={"Cache-Control": "public, max-age=86400"},
+        )
+    except httpx.RequestError:
+        raise HTTPException(status_code=502, detail="Failed to fetch logo")

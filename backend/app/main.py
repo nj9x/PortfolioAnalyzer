@@ -20,6 +20,10 @@ def _run_migrations(engine):
     migrations = [
         ("portfolios", "client_name", "VARCHAR(255)"),
         ("portfolios", "category", "VARCHAR(20) DEFAULT 'balanced'"),
+        ("portfolios", "benchmark", "VARCHAR(50) DEFAULT 'SPY'"),
+        ("portfolios", "target_allocation", "TEXT"),
+        ("portfolios", "risk_tolerance", "VARCHAR(20) DEFAULT 'moderate'"),
+        ("portfolios", "cash_balance", "FLOAT DEFAULT 0"),
     ]
     with engine.connect() as conn:
         for table, column, col_type in migrations:

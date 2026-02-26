@@ -117,10 +117,11 @@ def fetch_quotes(tickers: list[str]) -> dict:
     for t in tickers:
         snap = fetch_snapshot(t)
         if snap and snap.get("current_price"):
-            # Add company name + market cap from overview (cached 24h, very cheap)
+            # Add company name + market cap + icon from overview (cached 24h, very cheap)
             overview = fetch_ticker_overview(t)
             snap["name"] = overview.get("name", t)
             snap["market_cap"] = overview.get("market_cap")
+            snap["icon_url"] = overview.get("icon_url")
             data[t] = snap
         else:
             data[t] = {"current_price": None, "error": f"No data for {t}"}
@@ -207,6 +208,7 @@ def fetch_ticker_overview(ticker: str) -> dict:
     if not r:
         return {}
 
+    branding = r.get("branding", {})
     result = {
         "name": r.get("name", ticker),
         "ticker": r.get("ticker", ticker),
@@ -221,6 +223,8 @@ def fetch_ticker_overview(ticker: str) -> dict:
         "type": r.get("type"),
         "active": r.get("active"),
         "list_date": r.get("list_date"),
+        "icon_url": branding.get("icon_url"),
+        "logo_url": branding.get("logo_url"),
     }
 
     cache.set(cache_key, result, 86400)  # 24h cache

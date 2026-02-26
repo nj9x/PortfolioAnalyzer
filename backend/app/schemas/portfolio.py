@@ -1,6 +1,7 @@
+import json
 from datetime import datetime
 from typing import Optional, Literal
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 
 
 PORTFOLIO_CATEGORIES = Literal["conservative", "balanced", "high-growth"]
@@ -39,6 +40,10 @@ class PortfolioBase(BaseModel):
     description: Optional[str] = None
     client_name: Optional[str] = None
     category: Optional[PORTFOLIO_CATEGORIES] = "balanced"
+    benchmark: Optional[str] = "SPY"
+    target_allocation: Optional[dict] = None
+    risk_tolerance: Optional[str] = "moderate"
+    cash_balance: Optional[float] = 0.0
 
 
 class PortfolioCreate(PortfolioBase):
@@ -50,6 +55,10 @@ class PortfolioUpdate(BaseModel):
     description: Optional[str] = None
     client_name: Optional[str] = None
     category: Optional[PORTFOLIO_CATEGORIES] = None
+    benchmark: Optional[str] = None
+    target_allocation: Optional[dict] = None
+    risk_tolerance: Optional[str] = None
+    cash_balance: Optional[float] = None
 
 
 class PortfolioResponse(PortfolioBase):
@@ -60,6 +69,16 @@ class PortfolioResponse(PortfolioBase):
 
     model_config = {"from_attributes": True}
 
+    @field_validator("target_allocation", mode="before")
+    @classmethod
+    def parse_target_allocation(cls, v):
+        if isinstance(v, str):
+            try:
+                return json.loads(v)
+            except (json.JSONDecodeError, TypeError):
+                return None
+        return v
+
 
 class PortfolioListResponse(PortfolioBase):
     id: int
@@ -68,6 +87,16 @@ class PortfolioListResponse(PortfolioBase):
     holdings_count: int = 0
 
     model_config = {"from_attributes": True}
+
+    @field_validator("target_allocation", mode="before")
+    @classmethod
+    def parse_target_allocation(cls, v):
+        if isinstance(v, str):
+            try:
+                return json.loads(v)
+            except (json.JSONDecodeError, TypeError):
+                return None
+        return v
 
 
 # ─── Dashboard Overview Response Models ────────────────────────────────

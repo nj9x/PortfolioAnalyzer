@@ -300,6 +300,20 @@ def _compute_correlation_matrix(tickers: list[str], period: str = "6mo") -> dict
         return {"high_pairs": [], "avg_correlation": 0}
 
 
+def _get_52w_high(ticker: str, quote: dict) -> float | None:
+    """Get 52-week high from quote or compute from 1-year history."""
+    high = quote.get("fifty_two_week_high")
+    if high:
+        return high
+    try:
+        history = fetch_history_days(ticker, 365)
+        if history:
+            return max(h["high"] for h in history)
+    except Exception:
+        pass
+    return None
+
+
 def _compute_drawdown_analysis(tickers: list[str], quotes: dict) -> dict:
     """Drawdown from 52-week high per holding."""
     drawdowns = {}
@@ -307,11 +321,11 @@ def _compute_drawdown_analysis(tickers: list[str], quotes: dict) -> dict:
 
     for t in tickers:
         q = quotes.get(t, {})
-        high = q.get("fifty_two_week_high")
+        high = _get_52w_high(t, q)
         current = q.get("current_price")
         if high and current and high > 0:
             dd = round(((current - high) / high) * 100, 2)
-            drawdowns[t] = {"drawdown_pct": dd, "from_high": high, "current": current}
+            drawdowns[t] = {"drawdown_pct": dd, "from_high": round(high, 2), "current": current}
             if dd < worst.get("drawdown_pct", 0):
                 worst = {"ticker": t, "drawdown_pct": dd}
         else:
@@ -327,7 +341,7 @@ def _compute_stop_loss_alerts(
     alerts = []
     for t in tickers:
         q = quotes.get(t, {})
-        high = q.get("fifty_two_week_high")
+        high = _get_52w_high(t, q)
         current = q.get("current_price")
         if not high or not current:
             continue
@@ -337,7 +351,7 @@ def _compute_stop_loss_alerts(
                 "ticker": t,
                 "current": current,
                 "stop_level": stop_level,
-                "from_high": high,
+                "from_high": round(high, 2),
                 "status": "BELOW_STOP_LOSS",
             })
         elif current < stop_level * 1.05:
@@ -345,7 +359,7 @@ def _compute_stop_loss_alerts(
                 "ticker": t,
                 "current": current,
                 "stop_level": stop_level,
-                "from_high": high,
+                "from_high": round(high, 2),
                 "status": "NEAR_STOP_LOSS",
             })
     return alerts

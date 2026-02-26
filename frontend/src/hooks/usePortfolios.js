@@ -48,6 +48,16 @@ export function useDashboardOverview() {
   })
 }
 
+export function usePortfolioAnalytics(portfolioId) {
+  return useQuery({
+    queryKey: ['portfolio-analytics', portfolioId],
+    queryFn: () => portfolioApi.getPortfolioAnalytics(portfolioId),
+    enabled: !!portfolioId,
+    staleTime: 3 * 60 * 1000,
+    refetchInterval: 5 * 60 * 1000,
+  })
+}
+
 export function useDeletePortfolio() {
   const qc = useQueryClient()
   return useMutation({
