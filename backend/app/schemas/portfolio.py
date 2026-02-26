@@ -1,6 +1,9 @@
 from datetime import datetime
-from typing import Optional
+from typing import Optional, Literal
 from pydantic import BaseModel
+
+
+PORTFOLIO_CATEGORIES = Literal["conservative", "balanced", "high-growth"]
 
 
 class HoldingBase(BaseModel):
@@ -34,6 +37,8 @@ class HoldingResponse(HoldingBase):
 class PortfolioBase(BaseModel):
     name: str
     description: Optional[str] = None
+    client_name: Optional[str] = None
+    category: Optional[PORTFOLIO_CATEGORIES] = "balanced"
 
 
 class PortfolioCreate(PortfolioBase):
@@ -43,6 +48,8 @@ class PortfolioCreate(PortfolioBase):
 class PortfolioUpdate(BaseModel):
     name: Optional[str] = None
     description: Optional[str] = None
+    client_name: Optional[str] = None
+    category: Optional[PORTFOLIO_CATEGORIES] = None
 
 
 class PortfolioResponse(PortfolioBase):
@@ -61,3 +68,50 @@ class PortfolioListResponse(PortfolioBase):
     holdings_count: int = 0
 
     model_config = {"from_attributes": True}
+
+
+# ─── Dashboard Overview Response Models ────────────────────────────────
+
+
+class HoldingAlert(BaseModel):
+    ticker: str
+    alert_type: str  # "trim_opportunity" | "entry_point" | "review_needed"
+    message: str
+    gain_loss_pct: Optional[float] = None
+    technical_signal: Optional[str] = None
+    valuation_flag: Optional[str] = None
+
+
+class HoldingOverview(BaseModel):
+    ticker: str
+    shares: float
+    cost_basis: Optional[float] = None
+    current_price: Optional[float] = None
+    market_value: Optional[float] = None
+    gain_loss_pct: Optional[float] = None
+    day_change_pct: Optional[float] = None
+    alerts: list[HoldingAlert] = []
+
+
+class PortfolioOverview(BaseModel):
+    id: int
+    name: str
+    client_name: Optional[str] = None
+    category: Optional[str] = None
+    description: Optional[str] = None
+    holdings_count: int = 0
+    total_value: float = 0.0
+    total_cost: float = 0.0
+    total_return_pct: Optional[float] = None
+    day_change_pct: Optional[float] = None
+    is_underperforming: bool = False
+    underperformance_reason: Optional[str] = None
+    holdings: list[HoldingOverview] = []
+    alerts: list[HoldingAlert] = []
+
+
+class DashboardOverviewResponse(BaseModel):
+    portfolios: list[PortfolioOverview] = []
+    categories: dict[str, list[int]] = {}
+    total_aum: float = 0.0
+    alert_summary: dict[str, int] = {}

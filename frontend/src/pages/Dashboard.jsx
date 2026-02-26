@@ -1,156 +1,98 @@
-import { usePortfolioContext } from '../context/PortfolioContext'
-import { usePortfolio } from '../hooks/usePortfolios'
-import { useQuotes, useNews } from '../hooks/useMarketData'
-import { useLatestAnalysis } from '../hooks/useAnalysis'
-import PortfolioSummary from '../components/portfolio/PortfolioSummary'
-import StockListItem from '../components/market/StockListItem'
-import NewsCard from '../components/market/NewsCard'
-import RiskAssessment from '../components/analysis/RiskAssessment'
-import RecommendationCard from '../components/analysis/RecommendationCard'
+import { useNavigate, Link } from 'react-router-dom'
+import { useDashboardOverview } from '../hooks/usePortfolios'
+import DashboardSummaryBar from '../components/dashboard/DashboardSummaryBar'
+import PortfolioCategoryColumn from '../components/dashboard/PortfolioCategoryColumn'
+import AlertsPanel from '../components/dashboard/AlertsPanel'
 import LoadingSpinner from '../components/common/LoadingSpinner'
 import ErrorBanner from '../components/common/ErrorBanner'
 import EmptyState from '../components/common/EmptyState'
-import { Briefcase, FileText, BarChart3, Calculator } from 'lucide-react'
-import { Link } from 'react-router-dom'
+import { LayoutDashboard, Plus } from 'lucide-react'
 
 export default function Dashboard() {
-  const { selectedPortfolioId } = usePortfolioContext()
-  const { data: portfolio } = usePortfolio(selectedPortfolioId)
-  const { data: quotesData, isLoading: quotesLoading, error: quotesError } = useQuotes(selectedPortfolioId)
-  const { data: newsData } = useNews(selectedPortfolioId)
-  const { data: analysis } = useLatestAnalysis(selectedPortfolioId)
+  const { data, isLoading, error } = useDashboardOverview()
+  const navigate = useNavigate()
 
-  if (!selectedPortfolioId) {
+  if (isLoading) return <LoadingSpinner message="Loading portfolios..." />
+  if (error) return <ErrorBanner message="Failed to load dashboard data" />
+
+  const { portfolios = [], total_aum = 0, alert_summary = {} } = data || {}
+
+  if (portfolios.length === 0) {
     return (
       <EmptyState
-        icon={Briefcase}
-        title="Select a Portfolio"
-        description="Choose a portfolio from the dropdown above, or create one in the Portfolios page."
+        icon={LayoutDashboard}
+        title="Welcome to Portfolio Analyzer"
+        description="Create your first client portfolio to get started. Assign a category (Conservative, Balanced, or High Growth) and add holdings to see performance at a glance."
         action={
           <Link
             to="/portfolios"
             className="inline-flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-md text-sm font-medium hover:bg-blue-700"
           >
-            Go to Portfolios
+            <Plus size={16} /> Create Portfolio
           </Link>
         }
       />
     )
   }
 
-  const quotes = quotesData?.quotes || {}
-  const articles = newsData?.articles || []
-  const holdings = portfolio?.holdings || []
+  // Group portfolios by category
+  const conservative = portfolios.filter(p => p.category === 'conservative')
+  const balanced = portfolios.filter(p => p.category === 'balanced')
+  const highGrowth = portfolios.filter(p => p.category === 'high-growth')
+
+  // Collect all alerts with portfolio context
+  const allAlerts = portfolios.flatMap(p =>
+    (p.alerts || []).map(a => ({
+      ...a,
+      portfolioName: p.name,
+      clientName: p.client_name,
+    }))
+  )
 
   return (
     <div className="space-y-6">
-      <h2 className="text-xl font-semibold text-gray-900">{portfolio?.name || 'Dashboard'}</h2>
-
-      {/* Top row: Portfolio chart + Risk */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <PortfolioSummary holdings={holdings} quotes={quotes} />
-        {analysis ? (
-          <RiskAssessment score={analysis.risk_score} outlook={analysis.market_outlook} />
-        ) : (
-          <div className="bg-white rounded-lg border border-gray-200 p-6">
-            <h3 className="font-medium text-gray-900 mb-2">AI Analysis</h3>
-            <p className="text-sm text-gray-500">
-              No analysis yet.{' '}
-              <Link to="/analysis" className="text-blue-600 hover:underline">
-                Run one now
-              </Link>
-            </p>
-          </div>
-        )}
+      {/* Header */}
+      <div className="flex items-center justify-between">
+        <h2 className="text-xl font-semibold text-gray-900 flex items-center gap-2">
+          <LayoutDashboard size={22} className="text-blue-600" />
+          Advisor Dashboard
+        </h2>
+        <Link
+          to="/portfolios"
+          className="flex items-center gap-1.5 bg-blue-600 text-white px-3 py-1.5 rounded-lg text-sm font-medium hover:bg-blue-700 transition-colors"
+        >
+          <Plus size={14} /> New Portfolio
+        </Link>
       </div>
 
-      {/* Stock cards grid */}
-      {quotesLoading ? (
-        <LoadingSpinner message="Loading market data..." />
-      ) : (
-        <div>
-          <h3 className="font-medium text-gray-900 mb-3">Holdings</h3>
-          {quotesError && (
-            <ErrorBanner message={`Failed to load quotes: ${quotesError.response?.data?.detail || quotesError.message}`} />
-          )}
-          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3">
-            {holdings.map((h) => (
-              <StockListItem
-                key={h.ticker}
-                ticker={h.ticker}
-                data={quotes[h.ticker]}
-              />
-            ))}
-          </div>
-        </div>
-      )}
+      {/* Summary Bar */}
+      <DashboardSummaryBar
+        totalAUM={total_aum}
+        alertSummary={alert_summary}
+        portfolioCount={portfolios.length}
+      />
 
-      {/* Latest recommendations */}
-      {analysis?.recommendations?.length > 0 && (
-        <div>
-          <h3 className="font-medium text-gray-900 mb-3">Latest Recommendations</h3>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-            {analysis.recommendations.slice(0, 4).map((rec) => (
-              <RecommendationCard key={rec.id} rec={rec} />
-            ))}
-          </div>
-        </div>
-      )}
+      {/* Alerts Panel */}
+      {allAlerts.length > 0 && <AlertsPanel alerts={allAlerts} />}
 
-      {/* Quick Tools */}
-      <div>
-        <h3 className="font-medium text-gray-900 mb-3">Tools</h3>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-          <Link
-            to="/sec-filings"
-            className="flex items-center gap-3 bg-white rounded-lg border border-gray-200 p-4 hover:border-blue-300 hover:bg-blue-50/30 transition-colors group"
-          >
-            <div className="p-2 rounded-lg bg-blue-50 text-blue-600 group-hover:bg-blue-100">
-              <FileText size={20} />
-            </div>
-            <div>
-              <p className="text-sm font-medium text-gray-900">SEC Filings</p>
-              <p className="text-xs text-gray-500">Browse EDGAR filings with AI search</p>
-            </div>
-          </Link>
-          <Link
-            to="/chart-analysis"
-            className="flex items-center gap-3 bg-white rounded-lg border border-gray-200 p-4 hover:border-blue-300 hover:bg-blue-50/30 transition-colors group"
-          >
-            <div className="p-2 rounded-lg bg-purple-50 text-purple-600 group-hover:bg-purple-100">
-              <BarChart3 size={20} />
-            </div>
-            <div>
-              <p className="text-sm font-medium text-gray-900">Chart Analysis</p>
-              <p className="text-xs text-gray-500">AI-powered technical analysis</p>
-            </div>
-          </Link>
-          <Link
-            to="/dcf"
-            className="flex items-center gap-3 bg-white rounded-lg border border-gray-200 p-4 hover:border-blue-300 hover:bg-blue-50/30 transition-colors group"
-          >
-            <div className="p-2 rounded-lg bg-green-50 text-green-600 group-hover:bg-green-100">
-              <Calculator size={20} />
-            </div>
-            <div>
-              <p className="text-sm font-medium text-gray-900">DCF Valuation</p>
-              <p className="text-xs text-gray-500">Discounted cash flow calculator</p>
-            </div>
-          </Link>
-        </div>
+      {/* Category Columns */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <PortfolioCategoryColumn
+          category="conservative"
+          portfolios={conservative}
+          onSelectPortfolio={(id) => navigate(`/portfolio/${id}`)}
+        />
+        <PortfolioCategoryColumn
+          category="balanced"
+          portfolios={balanced}
+          onSelectPortfolio={(id) => navigate(`/portfolio/${id}`)}
+        />
+        <PortfolioCategoryColumn
+          category="high-growth"
+          portfolios={highGrowth}
+          onSelectPortfolio={(id) => navigate(`/portfolio/${id}`)}
+        />
       </div>
-
-      {/* News */}
-      {articles.length > 0 && (
-        <div>
-          <h3 className="font-medium text-gray-900 mb-3">Recent News</h3>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-            {articles.slice(0, 6).map((a, i) => (
-              <NewsCard key={i} article={a} />
-            ))}
-          </div>
-        </div>
-      )}
     </div>
   )
 }

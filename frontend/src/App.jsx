@@ -9,6 +9,7 @@ import ChartAnalysis from './pages/ChartAnalysis'
 import DCFCalculator from './pages/DCFCalculator'
 import StockDetail from './pages/StockDetail'
 import SECFilings from './pages/SECFilings'
+import PortfolioDetail from './pages/PortfolioDetail'
 
 export default function App() {
   return (
@@ -17,6 +18,7 @@ export default function App() {
         <MainLayout>
           <Routes>
             <Route path="/" element={<Dashboard />} />
+            <Route path="/portfolio/:id" element={<PortfolioDetail />} />
             <Route path="/portfolios" element={<PortfolioManager />} />
             <Route path="/signals" element={<MarketSignals />} />
             <Route path="/analysis" element={<AnalysisView />} />

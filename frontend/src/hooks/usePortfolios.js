@@ -20,16 +20,31 @@ export function useCreatePortfolio() {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: portfolioApi.createPortfolio,
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['portfolios'] }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['portfolios'] })
+      qc.invalidateQueries({ queryKey: ['dashboard-overview'] })
+    },
   })
 }
 
 export function useUploadPortfolio() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: ({ name, description, file }) =>
-      portfolioApi.uploadPortfolio(name, description, file),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['portfolios'] }),
+    mutationFn: ({ name, description, file, clientName, category }) =>
+      portfolioApi.uploadPortfolio(name, description, file, clientName, category),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['portfolios'] })
+      qc.invalidateQueries({ queryKey: ['dashboard-overview'] })
+    },
+  })
+}
+
+export function useDashboardOverview() {
+  return useQuery({
+    queryKey: ['dashboard-overview'],
+    queryFn: portfolioApi.getDashboardOverview,
+    refetchInterval: 5 * 60 * 1000,
+    staleTime: 2 * 60 * 1000,
   })
 }
 
@@ -37,7 +52,10 @@ export function useDeletePortfolio() {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: portfolioApi.deletePortfolio,
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['portfolios'] }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['portfolios'] })
+      qc.invalidateQueries({ queryKey: ['dashboard-overview'] })
+    },
   })
 }
 
@@ -48,6 +66,7 @@ export function useAddHolding(portfolioId) {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['portfolio', portfolioId] })
       qc.invalidateQueries({ queryKey: ['portfolios'] })
+      qc.invalidateQueries({ queryKey: ['dashboard-overview'] })
     },
   })
 }

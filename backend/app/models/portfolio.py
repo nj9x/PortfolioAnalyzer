@@ -10,6 +10,8 @@ class Portfolio(Base):
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String(255), nullable=False)
     description = Column(Text, nullable=True)
+    client_name = Column(String(255), nullable=True)
+    category = Column(String(20), nullable=True, default="balanced")  # conservative | balanced | high-growth
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
     updated_at = Column(
         DateTime,

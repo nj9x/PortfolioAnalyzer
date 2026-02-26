@@ -19,12 +19,17 @@ export const updateHolding = (portfolioId, holdingId, data) =>
 export const deleteHolding = (portfolioId, holdingId) =>
   api.delete(`/portfolios/${portfolioId}/holdings/${holdingId}`)
 
-export const uploadPortfolio = (name, description, file) => {
+export const uploadPortfolio = (name, description, file, clientName, category) => {
   const formData = new FormData()
   formData.append('name', name)
   if (description) formData.append('description', description)
+  if (clientName) formData.append('client_name', clientName)
+  formData.append('category', category || 'balanced')
   formData.append('file', file)
   return api.post('/portfolios/upload', formData, {
     headers: { 'Content-Type': 'multipart/form-data' },
   }).then(r => r.data)
 }
+
+export const getDashboardOverview = () =>
+  api.get('/portfolios/dashboard-overview').then(r => r.data)

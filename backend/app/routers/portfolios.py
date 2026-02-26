@@ -31,6 +31,12 @@ def create_portfolio(data: PortfolioCreate, db: Session = Depends(get_db)):
     return portfolio_service.create_portfolio(db, data)
 
 
+@router.get("/dashboard-overview")
+def dashboard_overview(db: Session = Depends(get_db)):
+    """Get all portfolios with performance metrics and alerts for the dashboard."""
+    return portfolio_service.get_dashboard_overview(db)
+
+
 @router.get("/{portfolio_id}", response_model=PortfolioResponse)
 def get_portfolio(portfolio_id: int, db: Session = Depends(get_db)):
     portfolio = portfolio_service.get_portfolio(db, portfolio_id)
@@ -81,6 +87,8 @@ def delete_holding(portfolio_id: int, holding_id: int, db: Session = Depends(get
 def upload_portfolio(
     name: str = Form(...),
     description: str = Form(None),
+    client_name: str = Form(None),
+    category: str = Form("balanced"),
     file: UploadFile = File(...),
     db: Session = Depends(get_db),
 ):
@@ -91,7 +99,13 @@ def upload_portfolio(
 
     try:
         portfolio = portfolio_service.import_portfolio_from_file(
-            db, name=name, file=file.file, filename=file.filename, description=description
+            db,
+            name=name,
+            file=file.file,
+            filename=file.filename,
+            description=description,
+            client_name=client_name,
+            category=category,
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))

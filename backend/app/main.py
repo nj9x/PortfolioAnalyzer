@@ -1,3 +1,4 @@
+import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -5,15 +6,35 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
+from sqlalchemy import text
 
 from app.config import get_settings
 from app.database import engine, Base
 from app.routers import portfolios, market_data, analysis, chart_analysis, dcf, sec_filings
 
+logger = logging.getLogger(__name__)
+
+
+def _run_migrations(engine):
+    """Add new columns to existing tables (safe for fresh and existing databases)."""
+    migrations = [
+        ("portfolios", "client_name", "VARCHAR(255)"),
+        ("portfolios", "category", "VARCHAR(20) DEFAULT 'balanced'"),
+    ]
+    with engine.connect() as conn:
+        for table, column, col_type in migrations:
+            try:
+                conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {column} {col_type}"))
+                conn.commit()
+                logger.info("Migration: added %s.%s", table, column)
+            except Exception:
+                conn.rollback()  # Column already exists — safe to ignore
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     Base.metadata.create_all(bind=engine)
+    _run_migrations(engine)
     yield
 
 
